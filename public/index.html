@@ -3,19 +3,20 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>조기출근 OT 공정 배분</title>
+    <title>영상의학과 근무·근태 관리</title>
     <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
     <header class="topbar">
       <div>
         <p class="eyebrow">영상의학과 업무 자동화</p>
-        <h1>조기출근 OT 공정 배분</h1>
+        <h1>영상의학과 근무·근태 관리</h1>
       </div>
       <div class="topbar-actions">
         <button id="tomorrowPreviewButton" class="primary">내일 추천 받기</button>
         <button id="algorithmHelpButton" aria-label="추천 계산 방식 보기" type="button">?</button>
         <button id="exportCsvButton">CSV 내보내기</button>
+        <button id="exportAttendanceCsvButton">근태 CSV 내보내기</button>
         <button id="backupJsonButton">JSON 백업</button>
         <button id="restoreJsonButton">JSON 복원</button>
         <input id="restoreJsonInput" class="hidden" type="file" accept="application/json,.json">
@@ -61,6 +62,7 @@
         <div class="button-row">
           <button id="showOtInputButton" type="button">조출 입력</button>
           <button id="showNightInputButton" type="button">야간 입력</button>
+          <button id="showAttendanceInputButton" type="button">근태 입력</button>
         </div>
 
         <div id="messageBox" class="message hidden"></div>
@@ -83,6 +85,10 @@
                 수동 변경
                 <select id="manualMriSelect"></select>
               </label>
+              <label>
+                조출 OT 시간
+                <input id="manualMriOtInput" type="number" step="0.5" placeholder="입력 없으면 시간 기록 안 함">
+              </label>
             </article>
 
             <article class="recommend-card xray-card">
@@ -93,6 +99,10 @@
               <label>
                 수동 변경
                 <select id="manualXraySelect"></select>
+              </label>
+              <label>
+                조출 OT 시간
+                <input id="manualXrayOtInput" type="number" step="0.5" placeholder="입력 없으면 시간 기록 안 함">
               </label>
             </article>
           </div>
@@ -105,17 +115,91 @@
               <h2>야간근무 직접 입력</h2>
             </div>
           </div>
-          <div class="form-grid">
-            <label>
-              야간 MRI 담당
-              <select id="nightMriSelect"></select>
-            </label>
-            <label>
-              야간 X-ray 담당
-              <select id="nightXraySelect"></select>
-            </label>
+          <div class="night-assignment-grid">
+            <div class="assignment-card">
+              <label>
+                야간 MRI 담당
+                <select id="nightMriSelect"></select>
+              </label>
+              <label>
+                야간 OT 시간
+                <input id="nightMriOtInput" type="number" step="0.5" placeholder="입력 없으면 시간 기록 안 함">
+              </label>
+            </div>
+            <div class="assignment-card">
+              <label>
+                야간 X-ray 담당
+                <select id="nightXraySelect"></select>
+              </label>
+              <label>
+                야간 OT 시간
+                <input id="nightXrayOtInput" type="number" step="0.5" placeholder="입력 없으면 시간 기록 안 함">
+              </label>
+            </div>
           </div>
           <p class="muted small-note">야간근무는 추천 없이 직접 입력합니다. 입력하지 않으면 달력에 표시되지 않습니다.</p>
+        </section>
+
+        <section id="attendanceInputSection" class="attendance-box hidden">
+          <div class="section-title compact-title">
+            <div>
+              <p class="eyebrow">휴가 / 근태 / 시간 기록</p>
+              <h2>개인 근태 입력</h2>
+            </div>
+          </div>
+          <div class="attendance-grid">
+            <label>
+              직원
+              <select id="attendanceNameSelect"></select>
+            </label>
+            <label>
+              OT 한 시간
+              <input id="attendanceOtInput" type="number" step="0.5" placeholder="예: 조출 1">
+            </label>
+            <label>
+              OT 사용 시간
+              <input id="attendanceOtUsedInput" type="number" step="0.5" placeholder="예: -4">
+            </label>
+            <label>
+              nightOt
+              <input id="attendanceNightOtInput" type="number" step="0.5" placeholder="야간 초과">
+            </label>
+            <label>
+              holidayOt
+              <input id="attendanceHolidayOtInput" type="number" step="0.5" placeholder="휴일 근무">
+            </label>
+            <label>
+              flexOt
+              <input id="attendanceFlexOtInput" type="number" step="0.5" placeholder="예: -1, 0.5">
+            </label>
+            <label>
+              off
+              <select id="attendanceOffSelect">
+                <option value="">없음</option>
+                <option value="연차">연차</option>
+                <option value="오전반차">오전반차</option>
+                <option value="오후반차">오후반차</option>
+              </select>
+            </label>
+          </div>
+          <div class="saturday-off-box">
+            <div>
+              <p class="form-label-text">토요일 OFF 직원</p>
+              <div id="saturdayOffList" class="saturday-off-list"></div>
+            </div>
+            <button id="saveSaturdayOffButton" type="button">토요일 OFF 저장</button>
+            <p class="muted small-note">선택한 직원들은 off에 토요일OFF로 저장되고, 같은 날짜의 나머지 재직 직원은 holidayOt 4시간이 자동 입력됩니다.</p>
+          </div>
+          <label>
+            note
+            <input id="attendanceNoteInput" type="text" placeholder="특이사항">
+            <span class="muted small-note inline-note">OT/탄력 자동 문구는 값 변경 시 다시 정리될 수 있습니다. 추가 메모는 자동 문구 뒤에 이어서 적어 주세요.</span>
+          </label>
+          <div class="button-row">
+            <button id="saveAttendanceButton" class="primary" type="button">근태 저장</button>
+            <button id="resetAttendanceButton" type="button">근태 입력 초기화</button>
+          </div>
+          <p class="muted small-note">외부 연동 CSV의 ot는 OT 한 시간과 OT 사용 시간을 합산해 저장합니다. 예: 조출 1, 사용 -4이면 ot는 -3입니다.</p>
         </section>
 
         <label>
@@ -168,9 +252,35 @@
             이름
             <input id="employeeNameInput" type="text" placeholder="직원 이름">
           </label>
-          <label class="check"><input id="employeeCanMriInput" type="checkbox"> MRI 가능</label>
-          <label class="check"><input id="employeeEligibleInput" type="checkbox" checked> OT 대상</label>
-          <label class="check"><input id="employeeNightEligibleInput" type="checkbox" checked> 야간 대상</label>
+          <label>
+            입사일
+            <input id="employeeHireDateInput" type="date">
+          </label>
+          <label>
+            퇴사일(해당일부터 제외)
+            <input id="employeeRetireDateInput" type="date">
+          </label>
+          <div class="employee-capability-card">
+            <label>
+              MRI 가능 시작일
+              <input id="employeeMriStartDateInput" type="date">
+            </label>
+            <p class="muted small-note">비워두면 MRI 담당 후보에서 제외됩니다.</p>
+          </div>
+          <div class="employee-capability-card">
+            <label>
+              OT 대상 시작일
+              <input id="employeeOtStartDateInput" type="date">
+            </label>
+            <p class="muted small-note">비워두면 조출 후보에서 제외됩니다.</p>
+          </div>
+          <div class="employee-capability-card">
+            <label>
+              야간 대상 시작일
+              <input id="employeeNightStartDateInput" type="date">
+            </label>
+            <p class="muted small-note">비워두면 야간 후보에서 제외됩니다.</p>
+          </div>
           <div class="button-row employee-actions">
             <button type="submit" class="primary">직원 저장</button>
             <button id="cancelEmployeeEditButton" type="button">수정 취소</button>
@@ -182,9 +292,11 @@
             <thead>
               <tr>
                 <th>이름</th>
-                <th>MRI</th>
-                <th>OT 대상</th>
-                <th>야간 대상</th>
+                <th>입사일</th>
+                <th>퇴사일</th>
+                <th>MRI 시작</th>
+                <th>OT 시작</th>
+                <th>야간 시작</th>
                 <th>관리</th>
               </tr>
             </thead>
@@ -219,6 +331,35 @@
           </table>
         </div>
       </section>
+
+      <section class="panel">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">근태 기록</p>
+            <h2>선택 날짜 개인 근태</h2>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>날짜</th>
+                <th>이름</th>
+                <th>ot 합계</th>
+                <th>OT 한 시간</th>
+                <th>OT 사용</th>
+                <th>nightOt</th>
+                <th>holidayOt</th>
+                <th>flexOt</th>
+                <th>off</th>
+                <th>note</th>
+                <th>관리</th>
+              </tr>
+            </thead>
+            <tbody id="attendanceTableBody"></tbody>
+          </table>
+        </div>
+      </section>
     </main>
 
     <dialog id="algorithmHelpDialog" class="help-dialog">
@@ -235,6 +376,7 @@
           <li>선택 날짜 이전의 가장 최근 조기출근일에 근무한 직원은 점수가 올라가 우선순위가 낮아집니다.</li>
           <li>마지막 OT 이후 오래 지난 직원은 약간 우선됩니다.</li>
           <li>점수가 같은 직원이 여러 명이면 날짜와 역할 기준으로 무작위 선택합니다.</li>
+          <li>최종 선택된 두 명 중 누가 MRI 담당이 될지는 직원 관리 목록 순서를 기준으로 조정합니다.</li>
           <li>MRI와 X-ray는 같은 직원이 될 수 없습니다.</li>
           <li>두 담당자가 모두 선택된 뒤, 더 선임인 직원이 MRI 가능자라면 선임자가 MRI 담당이 되도록 역할을 조정합니다.</li>
           <li>전체 OT 횟수의 최대-최소 차이가 커지면 공정성 경고를 표시합니다.</li>

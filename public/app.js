@@ -18,39 +18,61 @@ const sampleEmployees = [
     name: "김민수",
     canMri: true,
     isOtEligible: true,
-    isNightEligible: true
+    isNightEligible: true,
+    mriStartDate: "",
+    otStartDate: "",
+    nightStartDate: "",
+    hireDate: "",
+    retireDate: ""
   },
   {
     id: "emp_sample_002",
     name: "이서연",
     canMri: true,
     isOtEligible: true,
-    isNightEligible: true
+    isNightEligible: true,
+    mriStartDate: "",
+    otStartDate: "",
+    nightStartDate: "",
+    hireDate: "",
+    retireDate: ""
   },
   {
     id: "emp_sample_003",
     name: "박지훈",
     canMri: false,
     isOtEligible: true,
-    isNightEligible: true
+    isNightEligible: true,
+    mriStartDate: "",
+    otStartDate: "",
+    nightStartDate: "",
+    hireDate: "",
+    retireDate: ""
   },
   {
     id: "emp_sample_004",
     name: "최유진",
     canMri: false,
     isOtEligible: true,
-    isNightEligible: true
+    isNightEligible: true,
+    mriStartDate: "",
+    otStartDate: "",
+    nightStartDate: "",
+    hireDate: "",
+    retireDate: ""
   }
 ];
 
 let appData = {
   employees: [],
   records: [],
+  attendanceRecords: [],
   exceptions: [],
   settings: {}
 };
 
 let currentRecommendation = null;
+let calendarTooltipElement = null;
 
 const elements = {
   selectedDateInput: document.querySelector("#selectedDateInput"),
@@ -62,14 +84,17 @@ const elements = {
   calendarGrid: document.querySelector("#calendarGrid"),
   showOtInputButton: document.querySelector("#showOtInputButton"),
   showNightInputButton: document.querySelector("#showNightInputButton"),
+  showAttendanceInputButton: document.querySelector("#showAttendanceInputButton"),
   otInputSection: document.querySelector("#otInputSection"),
   nightInputSection: document.querySelector("#nightInputSection"),
+  attendanceInputSection: document.querySelector("#attendanceInputSection"),
   recommendButton: document.querySelector("#recommendButton"),
   tomorrowPreviewButton: document.querySelector("#tomorrowPreviewButton"),
   algorithmHelpButton: document.querySelector("#algorithmHelpButton"),
   algorithmHelpDialog: document.querySelector("#algorithmHelpDialog"),
   algorithmHelpCloseButton: document.querySelector("#algorithmHelpCloseButton"),
   exportCsvButton: document.querySelector("#exportCsvButton"),
+  exportAttendanceCsvButton: document.querySelector("#exportAttendanceCsvButton"),
   backupJsonButton: document.querySelector("#backupJsonButton"),
   restoreJsonButton: document.querySelector("#restoreJsonButton"),
   restoreJsonInput: document.querySelector("#restoreJsonInput"),
@@ -83,9 +108,25 @@ const elements = {
   alternateXrayButton: document.querySelector("#alternateXrayButton"),
   manualMriSelect: document.querySelector("#manualMriSelect"),
   manualXraySelect: document.querySelector("#manualXraySelect"),
+  manualMriOtInput: document.querySelector("#manualMriOtInput"),
+  manualXrayOtInput: document.querySelector("#manualXrayOtInput"),
   nightMriSelect: document.querySelector("#nightMriSelect"),
   nightXraySelect: document.querySelector("#nightXraySelect"),
+  nightMriOtInput: document.querySelector("#nightMriOtInput"),
+  nightXrayOtInput: document.querySelector("#nightXrayOtInput"),
   recordMemoInput: document.querySelector("#recordMemoInput"),
+  attendanceNameSelect: document.querySelector("#attendanceNameSelect"),
+  attendanceOtInput: document.querySelector("#attendanceOtInput"),
+  attendanceOtUsedInput: document.querySelector("#attendanceOtUsedInput"),
+  attendanceNightOtInput: document.querySelector("#attendanceNightOtInput"),
+  attendanceHolidayOtInput: document.querySelector("#attendanceHolidayOtInput"),
+  attendanceFlexOtInput: document.querySelector("#attendanceFlexOtInput"),
+  attendanceOffSelect: document.querySelector("#attendanceOffSelect"),
+  attendanceNoteInput: document.querySelector("#attendanceNoteInput"),
+  saturdayOffList: document.querySelector("#saturdayOffList"),
+  saveSaturdayOffButton: document.querySelector("#saveSaturdayOffButton"),
+  saveAttendanceButton: document.querySelector("#saveAttendanceButton"),
+  resetAttendanceButton: document.querySelector("#resetAttendanceButton"),
   confirmRecordButton: document.querySelector("#confirmRecordButton"),
   resetFormButton: document.querySelector("#resetFormButton"),
   fairnessStatus: document.querySelector("#fairnessStatus"),
@@ -93,12 +134,15 @@ const elements = {
   employeeForm: document.querySelector("#employeeForm"),
   employeeIdInput: document.querySelector("#employeeIdInput"),
   employeeNameInput: document.querySelector("#employeeNameInput"),
-  employeeCanMriInput: document.querySelector("#employeeCanMriInput"),
-  employeeEligibleInput: document.querySelector("#employeeEligibleInput"),
-  employeeNightEligibleInput: document.querySelector("#employeeNightEligibleInput"),
+  employeeHireDateInput: document.querySelector("#employeeHireDateInput"),
+  employeeRetireDateInput: document.querySelector("#employeeRetireDateInput"),
+  employeeMriStartDateInput: document.querySelector("#employeeMriStartDateInput"),
+  employeeOtStartDateInput: document.querySelector("#employeeOtStartDateInput"),
+  employeeNightStartDateInput: document.querySelector("#employeeNightStartDateInput"),
   cancelEmployeeEditButton: document.querySelector("#cancelEmployeeEditButton"),
   employeeTableBody: document.querySelector("#employeeTableBody"),
-  recordTableBody: document.querySelector("#recordTableBody")
+  recordTableBody: document.querySelector("#recordTableBody"),
+  attendanceTableBody: document.querySelector("#attendanceTableBody")
 };
 
 function formatLocalDate(date) {
@@ -150,6 +194,16 @@ function getGivenNameOnly(employeeId) {
   return fullName.length > 1 ? fullName.slice(1) : fullName;
 }
 
+function getGivenNameOnlyByName(name) {
+  const fullName = String(name || "").trim();
+  if (!fullName) return "-";
+  if (fullName.includes(" ")) {
+    const parts = fullName.split(/\s+/).filter(Boolean);
+    return parts[parts.length - 1] || fullName;
+  }
+  return fullName.length > 1 ? fullName.slice(1) : fullName;
+}
+
 function showMessage(message, type = "info") {
   elements.messageBox.textContent = message;
   elements.messageBox.classList.remove("hidden");
@@ -182,8 +236,9 @@ function escapeHtml(value) {
 
 function createInitialData() {
   return {
-    employees: sampleEmployees,
+    employees: sampleEmployees.map(normalizeEmployee),
     records: [],
+    attendanceRecords: [],
     exceptions: [],
     settings: defaultSettings
   };
@@ -193,18 +248,29 @@ function normalizeData(data) {
   return {
     employees: Array.isArray(data.employees) ? data.employees.map(normalizeEmployee) : [],
     records: Array.isArray(data.records) ? data.records.map(normalizeRecord) : [],
+    attendanceRecords: Array.isArray(data.attendanceRecords) ? data.attendanceRecords.map(normalizeAttendanceRecord) : [],
     exceptions: Array.isArray(data.exceptions) ? data.exceptions : [],
     settings: { ...defaultSettings, ...(data.settings || {}) }
   };
 }
 
 function normalizeEmployee(employee) {
+  const legacyImmediateDate = employee.hireDate || "1900-01-01";
+  const mriStartDate = employee.mriStartDate || (employee.canMri ? legacyImmediateDate : "");
+  const otStartDate = employee.otStartDate || (employee.isOtEligible !== false ? legacyImmediateDate : "");
+  const nightStartDate = employee.nightStartDate || (employee.isNightEligible !== false ? legacyImmediateDate : "");
+
   return {
     id: employee.id || `emp_${Date.now()}`,
     name: employee.name || "",
-    canMri: Boolean(employee.canMri),
-    isOtEligible: employee.isOtEligible !== false,
-    isNightEligible: employee.isNightEligible !== false
+    canMri: Boolean(mriStartDate),
+    isOtEligible: Boolean(otStartDate),
+    isNightEligible: Boolean(nightStartDate),
+    mriStartDate,
+    otStartDate,
+    nightStartDate,
+    hireDate: employee.hireDate || "",
+    retireDate: employee.retireDate || ""
   };
 }
 
@@ -217,6 +283,125 @@ function normalizeRecord(record) {
     nightMriEmployeeId: record.nightMriEmployeeId || "",
     nightXrayEmployeeId: record.nightXrayEmployeeId || "",
     memo: record.memo || ""
+  };
+}
+
+function toNumberOrZero(value) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function toOptionalNumber(value) {
+  if (value === "" || value === null || value === undefined) return "";
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : "";
+}
+
+function normalizeOtUsedValue(value) {
+  const optionalNumber = toOptionalNumber(value);
+  if (optionalNumber === "") return 0;
+  return -Math.abs(optionalNumber);
+}
+
+function formatNumberForNote(value) {
+  return Number.isInteger(value) ? String(value) : String(value);
+}
+
+function buildOtNotePrefix(otEarned, otUsed, flexOt = "") {
+  const earnedValue = toNumberOrZero(otEarned);
+  const usedValue = normalizeOtUsedValue(otUsed);
+  const flexValue = toNumberOrZero(flexOt);
+  const parts = [];
+
+  if (earnedValue !== 0 && usedValue !== 0) {
+    parts.push(`OT(${formatNumberForNote(earnedValue)})`);
+  }
+
+  if (usedValue !== 0) {
+    const absoluteUsedValue = Math.abs(usedValue);
+    if (absoluteUsedValue === 4) {
+      parts.push(`OT사용 반차(${formatNumberForNote(usedValue)})`);
+    } else if (absoluteUsedValue === 8) {
+      parts.push(`OT사용 off(${formatNumberForNote(usedValue)})`);
+    } else {
+      parts.push(`OT사용(${formatNumberForNote(usedValue)})`);
+    }
+  }
+
+  if (flexValue < 0) {
+    parts.push(`탄력 사용(${formatNumberForNote(flexValue)})`);
+  }
+
+  return parts.length ? `${parts.join(" + ")} ` : "";
+}
+
+function stripAutoOtNotePrefix(noteText) {
+  let remainingText = String(noteText || "");
+  const autoTokenPattern = /^(?:OT\([^)]*\)|OT사용 반차\([^)]*\)|OT사용 off\([^)]*\)|OT사용\([^)]*\)|탄력 사용\([^)]*\))/;
+
+  while (true) {
+    remainingText = remainingText.trimStart();
+    const before = remainingText;
+    remainingText = remainingText.replace(autoTokenPattern, "").trimStart();
+    if (remainingText.startsWith("+")) {
+      remainingText = remainingText.slice(1).trimStart();
+    }
+    if (remainingText === before) break;
+  }
+
+  return remainingText;
+}
+
+function syncAttendanceNoteWithOtInputs() {
+  const prefix = buildOtNotePrefix(elements.attendanceOtInput.value, elements.attendanceOtUsedInput.value, elements.attendanceFlexOtInput.value);
+  const manualNote = stripAutoOtNotePrefix(elements.attendanceNoteInput.value);
+  elements.attendanceNoteInput.value = `${prefix}${manualNote}`;
+}
+
+function getOtParts(record) {
+  const legacyOt = toNumberOrZero(record.ot);
+  const legacyDisplayOt = toOptionalNumber(record.displayOt);
+  const hasStoredParts = record.otEarned !== undefined || record.otUsed !== undefined;
+
+  if (hasStoredParts) {
+    return {
+      otEarned: toNumberOrZero(record.otEarned),
+      otUsed: normalizeOtUsedValue(record.otUsed)
+    };
+  }
+
+  if (legacyDisplayOt !== "") {
+    const normalizedLegacyDisplayOt = normalizeOtUsedValue(legacyDisplayOt);
+    return {
+      otEarned: legacyOt - normalizedLegacyDisplayOt,
+      otUsed: normalizedLegacyDisplayOt
+    };
+  }
+
+  return {
+    otEarned: legacyOt > 0 ? legacyOt : 0,
+    otUsed: legacyOt < 0 ? legacyOt : 0
+  };
+}
+
+function normalizeAttendanceRecord(record) {
+  const otParts = getOtParts(record);
+  const otTotal = otParts.otEarned + otParts.otUsed;
+  const flexOt = toNumberOrZero(record.flexOt);
+  const notePrefix = buildOtNotePrefix(otParts.otEarned, otParts.otUsed, flexOt);
+  const manualNote = stripAutoOtNotePrefix(record.note || "");
+
+  return {
+    date: record.date || "",
+    name: record.name || "",
+    ot: otTotal,
+    otEarned: otParts.otEarned,
+    otUsed: otParts.otUsed,
+    nightOt: toNumberOrZero(record.nightOt),
+    holidayOt: toNumberOrZero(record.holidayOt),
+    flexOt,
+    off: record.off || "",
+    note: `${notePrefix}${manualNote}`
   };
 }
 
@@ -244,8 +429,56 @@ function saveData() {
   localStorage.setItem(storageKey, JSON.stringify(appData));
 }
 
-function getEligibleEmployees() {
-  return appData.employees.filter(employee => employee.isOtEligible);
+function isEmployeeActiveOnDate(employee, dateText) {
+  if (!employee) return false;
+  if (!dateText) return true;
+  if (employee.hireDate && employee.hireDate > dateText) return false;
+  if (employee.retireDate && employee.retireDate <= dateText) return false;
+  return true;
+}
+
+function getActiveEmployees(dateText) {
+  return appData.employees.filter(employee => isEmployeeActiveOnDate(employee, dateText));
+}
+
+function isCapabilityAvailableOnDate(employee, capabilityStartDate, dateText) {
+  if (!employee || !isEmployeeActiveOnDate(employee, dateText)) return false;
+  if (!capabilityStartDate) return true;
+  return capabilityStartDate <= dateText;
+}
+
+function canEmployeeDoMriOnDate(employee, dateText) {
+  return Boolean(employee?.mriStartDate) && isCapabilityAvailableOnDate(employee, employee.mriStartDate, dateText);
+}
+
+function isEmployeeOtEligibleOnDate(employee, dateText) {
+  return Boolean(employee?.otStartDate) && isCapabilityAvailableOnDate(employee, employee.otStartDate, dateText);
+}
+
+function isEmployeeNightEligibleOnDate(employee, dateText) {
+  return Boolean(employee?.nightStartDate) && isCapabilityAvailableOnDate(employee, employee.nightStartDate, dateText);
+}
+
+function getEligibleEmployees(dateText) {
+  return getActiveEmployees(dateText).filter(employee => isEmployeeOtEligibleOnDate(employee, dateText));
+}
+
+function isEmployeeRelevantForMonth(employee, monthKey) {
+  const monthStart = `${monthKey}-01`;
+  const monthEnd = formatLocalDate(new Date(Number(monthKey.slice(0, 4)), Number(monthKey.slice(5, 7)), 0));
+
+  if (!employee.otStartDate) return false;
+  if (employee.otStartDate > monthEnd) return false;
+  if (employee.hireDate && employee.hireDate > monthEnd) return false;
+  if (employee.retireDate && employee.retireDate <= monthStart) return false;
+  return true;
+}
+
+function getMonthlyFairnessEmployees(monthKey, stats) {
+  return appData.employees.filter(employee => {
+    const employeeStats = stats.get(employee.id);
+    return isEmployeeRelevantForMonth(employee, monthKey) || (employeeStats?.total || 0) > 0;
+  });
 }
 
 function getMonthlyRecords(monthKey) {
@@ -359,9 +592,9 @@ function scoreCandidate(employee, role, dateText, stats, options = {}) {
   };
 }
 
-function getCandidates(role) {
-  return getEligibleEmployees().filter(employee => {
-    if (role === "mri") return employee.canMri;
+function getCandidates(role, dateText) {
+  return getEligibleEmployees(dateText).filter(employee => {
+    if (role === "mri") return canEmployeeDoMriOnDate(employee, dateText);
     return true;
   });
 }
@@ -394,12 +627,13 @@ function compareScoredCandidates(role, dateText) {
 function shouldSwapToSeniorMri(mriEmployeeId, xrayEmployeeId) {
   if (!mriEmployeeId || !xrayEmployeeId || mriEmployeeId === xrayEmployeeId) return false;
 
+  const dateText = elements.selectedDateInput.value;
   const mriEmployee = appData.employees.find(employee => employee.id === mriEmployeeId);
   const xrayEmployee = appData.employees.find(employee => employee.id === xrayEmployeeId);
   if (!mriEmployee || !xrayEmployee) return false;
 
   const xrayEmployeeIsSenior = getEmployeeOrder(xrayEmployeeId) < getEmployeeOrder(mriEmployeeId);
-  const swappedRolesAreValid = xrayEmployee.canMri;
+  const swappedRolesAreValid = canEmployeeDoMriOnDate(xrayEmployee, dateText);
   return xrayEmployeeIsSenior && swappedRolesAreValid;
 }
 
@@ -435,8 +669,8 @@ function recommendForDate(dateText) {
   const stats = buildEmployeeStats(monthKey);
   const warnings = [];
 
-  const mriCandidates = getCandidates("mri");
-  const xrayCandidates = getCandidates("xray");
+  const mriCandidates = getCandidates("mri", dateText);
+  const xrayCandidates = getCandidates("xray", dateText);
 
   if (mriCandidates.length === 0) {
     return { error: "MRI 가능한 OT 대상 직원이 없습니다. 직원 관리에서 MRI 가능 직원을 등록해 주세요." };
@@ -495,7 +729,7 @@ function recommendAlternate(role) {
   const stats = buildEmployeeStats(monthKey);
   const currentRoleEmployeeId = role === "mri" ? elements.manualMriSelect.value : elements.manualXraySelect.value;
   const otherRoleEmployeeId = role === "mri" ? elements.manualXraySelect.value : elements.manualMriSelect.value;
-  const candidates = getCandidates(role).filter(employee => {
+  const candidates = getCandidates(role, dateText).filter(employee => {
     return employee.id !== currentRoleEmployeeId && employee.id !== otherRoleEmployeeId;
   });
 
@@ -563,7 +797,7 @@ function calculateFairness(monthKey, extraRecords = []) {
     };
   }
 
-  const eligible = getEligibleEmployees();
+  const eligible = getMonthlyFairnessEmployees(monthKey, stats);
   return {
     total: roleDiff("total", eligible)
   };
@@ -590,17 +824,19 @@ function renderRecommendation(result) {
 }
 
 function renderEmployeeOptions() {
-  const otEligibleEmployees = appData.employees.filter(employee => employee.isOtEligible);
-  const nightEligibleEmployees = appData.employees.filter(employee => employee.isNightEligible);
+  const selectedDate = elements.selectedDateInput.value;
+  const activeEmployees = getActiveEmployees(selectedDate);
+  const otEligibleEmployees = activeEmployees.filter(employee => isEmployeeOtEligibleOnDate(employee, selectedDate));
+  const nightEligibleEmployees = activeEmployees.filter(employee => isEmployeeNightEligibleOnDate(employee, selectedDate));
   const otMriOptionHtml = otEligibleEmployees
-    .filter(employee => employee.canMri)
+    .filter(employee => canEmployeeDoMriOnDate(employee, selectedDate))
     .map(employee => `<option value="${employee.id}">${escapeHtml(employee.name)}</option>`)
     .join("");
   const otOptionHtml = otEligibleEmployees
     .map(employee => `<option value="${employee.id}">${escapeHtml(employee.name)}</option>`)
     .join("");
   const nightMriOptionHtml = nightEligibleEmployees
-    .filter(employee => employee.canMri)
+    .filter(employee => canEmployeeDoMriOnDate(employee, selectedDate))
     .map(employee => `<option value="${employee.id}">${escapeHtml(employee.name)}</option>`)
     .join("");
   const nightOptionHtml = nightEligibleEmployees
@@ -610,16 +846,32 @@ function renderEmployeeOptions() {
   elements.manualXraySelect.innerHTML = `<option value="">선택 없음</option>${otOptionHtml}`;
   elements.nightMriSelect.innerHTML = `<option value="">선택 없음</option>${nightMriOptionHtml}`;
   elements.nightXraySelect.innerHTML = `<option value="">선택 없음</option>${nightOptionHtml}`;
+  elements.attendanceNameSelect.innerHTML = `<option value="">직원 선택</option>${activeEmployees
+    .map(employee => `<option value="${escapeHtml(employee.name)}">${escapeHtml(employee.name)}</option>`)
+    .join("")}`;
+  const saturdayOffNames = new Set(getSaturdayOffRecords(selectedDate).map(record => record.name));
+  elements.saturdayOffList.innerHTML = activeEmployees.length
+    ? activeEmployees.map(employee => `
+      <label class="saturday-off-item">
+        <input type="checkbox" value="${employee.id}" ${saturdayOffNames.has(employee.name) ? "checked" : ""}>
+        <span>${escapeHtml(employee.name)}</span>
+      </label>
+    `).join("")
+    : `<p class="muted small-note">해당 날짜 기준 재직 직원이 없습니다.</p>`;
 }
 
 function renderEmployees() {
   elements.employeeTableBody.innerHTML = appData.employees.map(employee => `
     <tr>
       <td>${escapeHtml(employee.name)}</td>
-      <td>${employee.canMri ? "가능" : "-"}</td>
-      <td>${employee.isOtEligible ? "대상" : "제외"}</td>
-      <td>${employee.isNightEligible ? "대상" : "제외"}</td>
+      <td>${escapeHtml(employee.hireDate || "-")}</td>
+      <td>${escapeHtml(employee.retireDate || "-")}</td>
+      <td>${escapeHtml(employee.mriStartDate || "-")}</td>
+      <td>${escapeHtml(employee.otStartDate || "-")}</td>
+      <td>${escapeHtml(employee.nightStartDate || "-")}</td>
       <td>
+        <button class="small-button" data-action="move-employee-up" data-id="${employee.id}">위</button>
+        <button class="small-button" data-action="move-employee-down" data-id="${employee.id}">아래</button>
         <button class="small-button" data-action="edit-employee" data-id="${employee.id}">수정</button>
         <button class="small-button" data-action="delete-employee" data-id="${employee.id}">삭제</button>
       </td>
@@ -647,11 +899,145 @@ function renderRecords() {
   `).join("");
 }
 
+function renderAttendanceRecords() {
+  const selectedDate = elements.selectedDateInput.value;
+  const rows = appData.attendanceRecords
+    .filter(record => record.date === selectedDate)
+    .sort((a, b) => a.name.localeCompare(b.name, "ko"));
+
+  elements.attendanceTableBody.innerHTML = rows.map(record => `
+    <tr>
+      <td>${escapeHtml(record.date)}</td>
+      <td>${escapeHtml(record.name)}</td>
+      <td>${record.ot}</td>
+      <td>${record.otEarned}</td>
+      <td>${record.otUsed}</td>
+      <td>${record.nightOt}</td>
+      <td>${record.holidayOt}</td>
+      <td>${record.flexOt}</td>
+      <td>${escapeHtml(record.off)}</td>
+      <td>${escapeHtml(record.note)}</td>
+      <td>
+        <button class="small-button" data-action="edit-attendance" data-date="${escapeHtml(record.date)}" data-name="${escapeHtml(record.name)}">수정</button>
+        <button class="small-button" data-action="delete-attendance" data-date="${escapeHtml(record.date)}" data-name="${escapeHtml(record.name)}">삭제</button>
+      </td>
+    </tr>
+  `).join("");
+}
+
+function getSaturdayOffRecords(dateText) {
+  return appData.attendanceRecords.filter(record => record.date === dateText && record.off === "토요일OFF");
+}
+
+function buildCalendarMiddleText(dateText) {
+  const dateAttendanceRecords = appData.attendanceRecords.filter(record => record.date === dateText);
+  const saturdayOffNames = dateAttendanceRecords
+    .filter(record => record.off === "토요일OFF")
+    .map(record => getGivenNameOnlyByName(record.name));
+  const attendanceTexts = dateAttendanceRecords
+    .filter(record => record.off !== "토요일OFF")
+    .map(record => {
+      const name = getGivenNameOnlyByName(record.name);
+      const details = [];
+      if (record.off) details.push(getShortOffLabel(record.off));
+      if (record.otUsed < 0) details.push(`OT ${record.otUsed}`);
+      if (record.flexOt < 0) details.push(`탄력 ${record.flexOt}`);
+      return details.length ? `${name} ${details.join(" ")}` : "";
+    })
+    .filter(Boolean);
+
+  if (saturdayOffNames.length) {
+    attendanceTexts.unshift(`OFF: ${saturdayOffNames.join("/")}`);
+  }
+
+  return attendanceTexts.join("\n");
+}
+
+function formatTimeSuffix(value) {
+  return value ? `(${formatNumberForNote(value)})` : "";
+}
+
+function buildCalendarTooltipText(dateText, record, middleText, missingWorkTime) {
+  const lines = [];
+
+  if (record?.needsOt) {
+    const mriAttendance = getAttendanceRecord(record.date, getEmployeeName(record.mriEmployeeId));
+    const xrayAttendance = getAttendanceRecord(record.date, getEmployeeName(record.xrayEmployeeId));
+    lines.push(`OT: ${getGivenNameOnly(record.mriEmployeeId)}${formatTimeSuffix(mriAttendance?.otEarned)}/${getGivenNameOnly(record.xrayEmployeeId)}${formatTimeSuffix(xrayAttendance?.otEarned)}`);
+  }
+
+  const attendanceLines = appData.attendanceRecords
+    .filter(attendanceRecord => attendanceRecord.date === dateText)
+    .map(attendanceRecord => buildAttendanceTooltipLine(attendanceRecord))
+    .filter(Boolean);
+
+  lines.push(...attendanceLines);
+
+  if (record?.nightMriEmployeeId || record?.nightXrayEmployeeId) {
+    const nightMriAttendance = getAttendanceRecord(record.date, getEmployeeName(record.nightMriEmployeeId));
+    const nightXrayAttendance = getAttendanceRecord(record.date, getEmployeeName(record.nightXrayEmployeeId));
+    lines.push(`야간: ${getGivenNameOnly(record.nightMriEmployeeId)}${formatTimeSuffix(nightMriAttendance?.nightOt)}/${getGivenNameOnly(record.nightXrayEmployeeId)}${formatTimeSuffix(nightXrayAttendance?.nightOt)}`);
+  }
+
+  if (!lines.length && middleText) {
+    lines.push(middleText);
+  }
+
+  if (missingWorkTime) {
+    lines.push("시간 입력 필요");
+  }
+
+  return lines.join("\n");
+}
+
+function buildAttendanceTooltipLine(record) {
+  const name = getGivenNameOnlyByName(record.name);
+  const details = [];
+
+  if (record.off === "토요일OFF") {
+    details.push("OFF");
+  } else if (record.off) {
+    details.push(getShortOffLabel(record.off));
+  }
+
+  if (record.otUsed < 0) details.push(`OT ${record.otUsed}`);
+  if (record.flexOt !== 0) details.push(`탄력 ${record.flexOt}`);
+  if (record.holidayOt !== 0) details.push(`휴일 ${record.holidayOt}`);
+  const manualNote = stripAutoOtNotePrefix(record.note);
+  if (manualNote) details.push(manualNote);
+
+  return details.length ? `${name} ${details.join(" ")}` : "";
+}
+
+function hasMissingWorkTime(record) {
+  if (!record) return false;
+
+  if (record.needsOt) {
+    const mriAttendance = getAttendanceRecord(record.date, getEmployeeName(record.mriEmployeeId));
+    const xrayAttendance = getAttendanceRecord(record.date, getEmployeeName(record.xrayEmployeeId));
+    if (!mriAttendance?.otEarned || !xrayAttendance?.otEarned) return true;
+  }
+
+  if (record.nightMriEmployeeId || record.nightXrayEmployeeId) {
+    const nightMriAttendance = getAttendanceRecord(record.date, getEmployeeName(record.nightMriEmployeeId));
+    const nightXrayAttendance = getAttendanceRecord(record.date, getEmployeeName(record.nightXrayEmployeeId));
+    if (!nightMriAttendance?.nightOt || !nightXrayAttendance?.nightOt) return true;
+  }
+
+  return false;
+}
+
+function getShortOffLabel(offText) {
+  if (offText === "오전반차") return "전반";
+  if (offText === "오후반차") return "후반";
+  return offText;
+}
+
 function renderMonthlySummary() {
   const monthKey = getMonthKey(elements.selectedDateInput.value);
   const stats = buildEmployeeStats(monthKey);
   const rows = [...stats.values()]
-    .filter(item => item.employee.isOtEligible || item.total > 0)
+    .filter(item => isEmployeeRelevantForMonth(item.employee, monthKey) || item.total > 0)
     .sort((a, b) => b.total - a.total || a.employee.name.localeCompare(b.employee.name, "ko"));
 
   elements.monthlySummaryBody.innerHTML = rows.map(item => `
@@ -679,7 +1065,10 @@ function renderCalendar() {
   const lastDate = new Date(year, month, 0);
   const firstWeekday = firstDate.getDay();
   const todayText = getTodayText();
-  const recordDates = new Set(appData.records.map(record => record.date));
+  const recordDates = new Set([
+    ...appData.records.map(record => record.date),
+    ...appData.attendanceRecords.map(record => record.date)
+  ]);
 
   elements.calendarMonthLabel.textContent = `${year}년 ${month}월`;
   elements.selectedDateDisplay.value = formatKoreanDate(selectedDate);
@@ -700,19 +1089,23 @@ function renderCalendar() {
     if (weekday === 6) classes.push("is-saturday");
 
     const record = appData.records.find(item => item.date === dateText);
+    const missingWorkTime = hasMissingWorkTime(record);
+    if (missingWorkTime) classes.push("needs-time-input");
     const otText = record?.needsOt
       ? `OT: ${getGivenNameOnly(record.mriEmployeeId)}/${getGivenNameOnly(record.xrayEmployeeId)}`
       : "";
     const nightText = record?.nightMriEmployeeId || record?.nightXrayEmployeeId
       ? `야간: ${getGivenNameOnly(record.nightMriEmployeeId)}/${getGivenNameOnly(record.nightXrayEmployeeId)}`
       : "";
+    const middleText = buildCalendarMiddleText(dateText);
+    const dayTooltipText = buildCalendarTooltipText(dateText, record, middleText, missingWorkTime);
     cells.push(`
       <button class="${classes.join(" ")}" type="button" data-date="${dateText}">
         <span class="calendar-day-number">${day}</span>
         <span class="calendar-day-info">
-          <span class="${otText ? "calendar-day-note" : "calendar-day-note-empty"}">${escapeHtml(otText || "-")}</span>
-          <span aria-hidden="true"></span>
-          <span class="${nightText ? "calendar-day-note calendar-day-note-night" : "calendar-day-note-empty calendar-day-note-night"}">${escapeHtml(nightText || "-")}</span>
+          <span class="${otText ? "calendar-day-note" : "calendar-day-note-empty"}" data-tooltip="${escapeHtml(dayTooltipText)}">${escapeHtml(otText || "-")}</span>
+          <span class="${middleText ? "calendar-day-note calendar-day-note-off" : "calendar-day-note-empty"}" data-tooltip="${escapeHtml(dayTooltipText)}">${escapeHtml(middleText || "-")}</span>
+          <span class="${nightText ? "calendar-day-note calendar-day-note-night" : "calendar-day-note-empty calendar-day-note-night"}" data-tooltip="${escapeHtml(dayTooltipText)}">${escapeHtml(nightText || "-")}</span>
         </span>
       </button>
     `);
@@ -721,12 +1114,53 @@ function renderCalendar() {
   elements.calendarGrid.innerHTML = cells.join("");
 }
 
+function ensureCalendarTooltipElement() {
+  if (calendarTooltipElement) return calendarTooltipElement;
+
+  calendarTooltipElement = document.createElement("div");
+  calendarTooltipElement.className = "calendar-tooltip hidden";
+  document.body.appendChild(calendarTooltipElement);
+  return calendarTooltipElement;
+}
+
+function showCalendarTooltip(text, event) {
+  if (!text) return;
+  const tooltip = ensureCalendarTooltipElement();
+  tooltip.textContent = text;
+  tooltip.classList.remove("hidden");
+  moveCalendarTooltip(event);
+}
+
+function moveCalendarTooltip(event) {
+  if (!calendarTooltipElement || calendarTooltipElement.classList.contains("hidden")) return;
+  const margin = 14;
+  const tooltipRect = calendarTooltipElement.getBoundingClientRect();
+  let left = event.clientX + margin;
+  let top = event.clientY + margin;
+
+  if (left + tooltipRect.width > window.innerWidth - margin) {
+    left = event.clientX - tooltipRect.width - margin;
+  }
+  if (top + tooltipRect.height > window.innerHeight - margin) {
+    top = event.clientY - tooltipRect.height - margin;
+  }
+
+  calendarTooltipElement.style.left = `${Math.max(margin, left)}px`;
+  calendarTooltipElement.style.top = `${Math.max(margin, top)}px`;
+}
+
+function hideCalendarTooltip() {
+  if (!calendarTooltipElement) return;
+  calendarTooltipElement.classList.add("hidden");
+}
+
 function renderAll() {
   elements.selectedWeekday.textContent = weekdayNames[getWeekday(elements.selectedDateInput.value)];
   renderCalendar();
   renderEmployeeOptions();
   renderEmployees();
   renderRecords();
+  renderAttendanceRecords();
   renderMonthlySummary();
   renderFairness();
 }
@@ -734,9 +1168,11 @@ function renderAll() {
 function resetEmployeeForm() {
   elements.employeeIdInput.value = "";
   elements.employeeNameInput.value = "";
-  elements.employeeCanMriInput.checked = false;
-  elements.employeeEligibleInput.checked = true;
-  elements.employeeNightEligibleInput.checked = true;
+  elements.employeeHireDateInput.value = "";
+  elements.employeeRetireDateInput.value = "";
+  elements.employeeMriStartDateInput.value = "";
+  elements.employeeOtStartDateInput.value = "";
+  elements.employeeNightStartDateInput.value = "";
 }
 
 function resetRecommendationView() {
@@ -747,18 +1183,37 @@ function resetRecommendationView() {
   elements.xrayRecommendationReason.textContent = "추천 버튼을 누르면 사유가 표시됩니다.";
   elements.manualMriSelect.value = "";
   elements.manualXraySelect.value = "";
+  elements.manualMriOtInput.value = "";
+  elements.manualXrayOtInput.value = "";
   elements.nightMriSelect.value = "";
   elements.nightXraySelect.value = "";
+  elements.nightMriOtInput.value = "";
+  elements.nightXrayOtInput.value = "";
   elements.recordMemoInput.value = "";
   setWarnings([]);
   hideMessage();
 }
 
+function resetAttendanceForm(keepName = false) {
+  if (!keepName) {
+    elements.attendanceNameSelect.value = "";
+  }
+  elements.attendanceOtInput.value = "";
+  elements.attendanceOtUsedInput.value = "";
+  elements.attendanceNightOtInput.value = "";
+  elements.attendanceHolidayOtInput.value = "";
+  elements.attendanceFlexOtInput.value = "";
+  elements.attendanceOffSelect.value = "";
+  elements.attendanceNoteInput.value = "";
+}
+
 function setInputSectionVisibility(sectionName) {
   elements.otInputSection.classList.toggle("hidden", sectionName !== "ot");
   elements.nightInputSection.classList.toggle("hidden", sectionName !== "night");
+  elements.attendanceInputSection.classList.toggle("hidden", sectionName !== "attendance");
   elements.showOtInputButton.classList.toggle("is-active-mode", sectionName === "ot");
   elements.showNightInputButton.classList.toggle("is-active-mode", sectionName === "night");
+  elements.showAttendanceInputButton.classList.toggle("is-active-mode", sectionName === "attendance");
 }
 
 function loadSelectedRecordIntoForm() {
@@ -769,6 +1224,27 @@ function loadSelectedRecordIntoForm() {
   elements.nightMriSelect.value = record?.nightMriEmployeeId || "";
   elements.nightXraySelect.value = record?.nightXrayEmployeeId || "";
   elements.recordMemoInput.value = record?.memo || "";
+  elements.manualMriOtInput.value = "";
+  elements.manualXrayOtInput.value = "";
+  elements.nightMriOtInput.value = "";
+  elements.nightXrayOtInput.value = "";
+
+  if (record?.mriEmployeeId) {
+    const mriAttendance = getAttendanceRecord(record.date, getEmployeeName(record.mriEmployeeId));
+    elements.manualMriOtInput.value = mriAttendance?.otEarned || "";
+  }
+  if (record?.xrayEmployeeId) {
+    const xrayAttendance = getAttendanceRecord(record.date, getEmployeeName(record.xrayEmployeeId));
+    elements.manualXrayOtInput.value = xrayAttendance?.otEarned || "";
+  }
+  if (record?.nightMriEmployeeId) {
+    const nightMriAttendance = getAttendanceRecord(record.date, getEmployeeName(record.nightMriEmployeeId));
+    elements.nightMriOtInput.value = nightMriAttendance?.nightOt || "";
+  }
+  if (record?.nightXrayEmployeeId) {
+    const nightXrayAttendance = getAttendanceRecord(record.date, getEmployeeName(record.nightXrayEmployeeId));
+    elements.nightXrayOtInput.value = nightXrayAttendance?.nightOt || "";
+  }
 
   if (record?.needsOt) {
     elements.mriRecommendationName.textContent = getEmployeeName(record.mriEmployeeId);
@@ -786,6 +1262,150 @@ function loadSelectedRecordIntoForm() {
   setWarnings([]);
 }
 
+function getAttendanceRecord(date, name) {
+  return appData.attendanceRecords.find(record => record.date === date && record.name === name);
+}
+
+function upsertAttendanceTime(date, employeeId, fieldName, value) {
+  if (value === "") return;
+
+  const name = getEmployeeName(employeeId);
+  if (!name || name === "-") return;
+
+  const existingRecord = getAttendanceRecord(date, name) || normalizeAttendanceRecord({ date, name });
+  const updates = fieldName === "ot"
+    ? { otEarned: toNumberOrZero(value) }
+    : { [fieldName]: toNumberOrZero(value) };
+  const updatedRecord = normalizeAttendanceRecord({
+    ...existingRecord,
+    ...updates
+  });
+
+  appData.attendanceRecords = appData.attendanceRecords.filter(record => !(record.date === date && record.name === name));
+  appData.attendanceRecords.push(updatedRecord);
+}
+
+function upsertAttendanceRecordByName(date, name, updates) {
+  if (!name) return;
+
+  const existingRecord = getAttendanceRecord(date, name) || normalizeAttendanceRecord({ date, name });
+  const normalizedUpdates = { ...updates };
+  if (Object.prototype.hasOwnProperty.call(normalizedUpdates, "otUsed")) {
+    normalizedUpdates.otUsed = normalizeOtUsedValue(normalizedUpdates.otUsed);
+  }
+  const updatedRecord = normalizeAttendanceRecord({
+    ...existingRecord,
+    ...normalizedUpdates,
+    date,
+    name
+  });
+
+  appData.attendanceRecords = appData.attendanceRecords.filter(record => !(record.date === date && record.name === name));
+  appData.attendanceRecords.push(updatedRecord);
+}
+
+async function saveSaturdayOff() {
+  const date = elements.selectedDateInput.value;
+  const saturdayOffEmployeeIds = Array.from(elements.saturdayOffList.querySelectorAll("input[type='checkbox']:checked"))
+    .map(input => input.value);
+  const weekday = getWeekday(date);
+
+  if (weekday !== 6) {
+    showMessage("토요일 OFF는 토요일 날짜에서만 저장할 수 있습니다.", "error");
+    return;
+  }
+
+  if (!saturdayOffEmployeeIds.length) {
+    showMessage("토요일 OFF 직원을 한 명 이상 선택해 주세요.", "error");
+    return;
+  }
+
+  const activeEmployees = getActiveEmployees(date);
+  const offEmployeeIdSet = new Set(saturdayOffEmployeeIds);
+  const offEmployees = activeEmployees.filter(employee => offEmployeeIdSet.has(employee.id));
+  if (offEmployees.length !== saturdayOffEmployeeIds.length) {
+    showMessage("선택한 직원 중 해당 날짜 기준 재직 대상자가 아닌 직원이 있습니다.", "error");
+    return;
+  }
+
+  if (!window.confirm(`${date} 토요일 OFF ${offEmployees.length}명을 저장하고, 나머지 재직 직원에게 holidayOt 4시간을 입력할까요?`)) {
+    return;
+  }
+
+  activeEmployees.forEach(employee => {
+    if (offEmployeeIdSet.has(employee.id)) {
+      upsertAttendanceRecordByName(date, employee.name, { off: "토요일OFF", holidayOt: 0 });
+      return;
+    }
+
+    const existingRecord = getAttendanceRecord(date, employee.name);
+    const nextOff = existingRecord?.off === "토요일OFF" ? "" : existingRecord?.off || "";
+    upsertAttendanceRecordByName(date, employee.name, { off: nextOff, holidayOt: 4 });
+  });
+
+  await saveData();
+  renderAll();
+  showMessage(`${date} 토요일 OFF ${offEmployees.length}명과 휴일근무 4시간을 저장했습니다.`);
+}
+
+function loadAttendanceRecordIntoForm(date, name) {
+  const record = appData.attendanceRecords.find(item => item.date === date && item.name === name);
+  elements.attendanceNameSelect.value = name || "";
+
+  if (!record) {
+    resetAttendanceForm(true);
+    return;
+  }
+
+  elements.attendanceOtInput.value = record.otEarned || "";
+  elements.attendanceOtUsedInput.value = record.otUsed || "";
+  elements.attendanceNightOtInput.value = record.nightOt || "";
+  elements.attendanceHolidayOtInput.value = record.holidayOt || "";
+  elements.attendanceFlexOtInput.value = record.flexOt || "";
+  elements.attendanceOffSelect.value = record.off || "";
+  elements.attendanceNoteInput.value = record.note || "";
+}
+
+async function saveAttendanceRecord() {
+  const date = elements.selectedDateInput.value;
+  const name = elements.attendanceNameSelect.value;
+
+  if (!name) {
+    showMessage("근태를 기록할 직원을 선택해 주세요.", "error");
+    return;
+  }
+
+  const attendanceRecord = normalizeAttendanceRecord({
+    date,
+    name,
+    otEarned: elements.attendanceOtInput.value,
+    otUsed: normalizeOtUsedValue(elements.attendanceOtUsedInput.value),
+    nightOt: elements.attendanceNightOtInput.value,
+    holidayOt: elements.attendanceHolidayOtInput.value,
+    flexOt: elements.attendanceFlexOtInput.value,
+    off: elements.attendanceOffSelect.value,
+    note: elements.attendanceNoteInput.value.trim()
+  });
+
+  appData.attendanceRecords = appData.attendanceRecords.filter(record => !(record.date === date && record.name === name));
+  appData.attendanceRecords.push(attendanceRecord);
+
+  await saveData();
+  renderAll();
+  resetAttendanceForm(true);
+  showMessage(`${date} ${name} 근태 기록을 저장했습니다.`);
+}
+
+async function deleteAttendanceRecord(date, name) {
+  if (!window.confirm(`${date} ${name} 근태 기록을 삭제할까요?`)) return;
+
+  appData.attendanceRecords = appData.attendanceRecords.filter(record => !(record.date === date && record.name === name));
+  await saveData();
+  renderAll();
+  resetAttendanceForm();
+  showMessage("근태 기록이 삭제되었습니다.");
+}
+
 async function saveRecord() {
   const date = elements.selectedDateInput.value;
   enforceSeniorMriAssignment({ updateReason: true });
@@ -793,6 +1413,10 @@ async function saveRecord() {
   const xrayEmployeeId = elements.manualXraySelect.value;
   const nightMriEmployeeId = elements.nightMriSelect.value;
   const nightXrayEmployeeId = elements.nightXraySelect.value;
+  const mriOtValue = elements.manualMriOtInput.value;
+  const xrayOtValue = elements.manualXrayOtInput.value;
+  const nightMriOtValue = elements.nightMriOtInput.value;
+  const nightXrayOtValue = elements.nightXrayOtInput.value;
   const hasOtInput = Boolean(mriEmployeeId || xrayEmployeeId);
   const needsOt = Boolean(mriEmployeeId && xrayEmployeeId);
   const hasNightInput = Boolean(nightMriEmployeeId || nightXrayEmployeeId);
@@ -807,8 +1431,13 @@ async function saveRecord() {
       return;
     }
     const mriEmployee = appData.employees.find(employee => employee.id === mriEmployeeId);
-    if (!mriEmployee?.canMri) {
-      showMessage("MRI 담당자는 MRI 가능 직원이어야 합니다.", "error");
+    const xrayEmployee = appData.employees.find(employee => employee.id === xrayEmployeeId);
+    if (!isEmployeeOtEligibleOnDate(mriEmployee, date) || !isEmployeeOtEligibleOnDate(xrayEmployee, date)) {
+      showMessage("조기출근 담당자는 해당 날짜 기준 입사일 이후, 퇴사일 이전인 직원만 선택할 수 있습니다.", "error");
+      return;
+    }
+    if (!canEmployeeDoMriOnDate(mriEmployee, date)) {
+      showMessage("MRI 담당자는 해당 날짜 기준 MRI 가능 직원이어야 합니다.", "error");
       return;
     }
   }
@@ -823,16 +1452,20 @@ async function saveRecord() {
       return;
     }
     const nightMriEmployee = appData.employees.find(employee => employee.id === nightMriEmployeeId);
-    if (!nightMriEmployee?.canMri) {
-      showMessage("야간 MRI 담당자는 MRI 가능 직원이어야 합니다.", "error");
+    const nightXrayEmployee = appData.employees.find(employee => employee.id === nightXrayEmployeeId);
+    if (!isEmployeeNightEligibleOnDate(nightMriEmployee, date) || !isEmployeeNightEligibleOnDate(nightXrayEmployee, date)) {
+      showMessage("야간 담당자는 해당 날짜 기준 입사일 이후, 퇴사일 이전인 직원만 선택할 수 있습니다.", "error");
       return;
     }
-    if (!nightMriEmployee?.isNightEligible) {
+    if (!canEmployeeDoMriOnDate(nightMriEmployee, date)) {
+      showMessage("야간 MRI 담당자는 해당 날짜 기준 MRI 가능 직원이어야 합니다.", "error");
+      return;
+    }
+    if (!isEmployeeNightEligibleOnDate(nightMriEmployee, date)) {
       showMessage("야간 MRI 담당자는 야간 대상 직원이어야 합니다.", "error");
       return;
     }
-    const nightXrayEmployee = appData.employees.find(employee => employee.id === nightXrayEmployeeId);
-    if (!nightXrayEmployee?.isNightEligible) {
+    if (!isEmployeeNightEligibleOnDate(nightXrayEmployee, date)) {
       showMessage("야간 X-ray 담당자는 야간 대상 직원이어야 합니다.", "error");
       return;
     }
@@ -854,6 +1487,16 @@ async function saveRecord() {
     memo: elements.recordMemoInput.value.trim()
   });
 
+  if (needsOt) {
+    upsertAttendanceTime(date, mriEmployeeId, "ot", mriOtValue);
+    upsertAttendanceTime(date, xrayEmployeeId, "ot", xrayOtValue);
+  }
+
+  if (hasNightInput) {
+    upsertAttendanceTime(date, nightMriEmployeeId, "nightOt", nightMriOtValue);
+    upsertAttendanceTime(date, nightXrayEmployeeId, "nightOt", nightXrayOtValue);
+  }
+
   await saveData();
   renderAll();
   loadSelectedRecordIntoForm();
@@ -865,9 +1508,11 @@ function editEmployee(employeeId) {
   if (!employee) return;
   elements.employeeIdInput.value = employee.id;
   elements.employeeNameInput.value = employee.name;
-  elements.employeeCanMriInput.checked = employee.canMri;
-  elements.employeeEligibleInput.checked = employee.isOtEligible;
-  elements.employeeNightEligibleInput.checked = employee.isNightEligible;
+  elements.employeeHireDateInput.value = employee.hireDate || "";
+  elements.employeeRetireDateInput.value = employee.retireDate || "";
+  elements.employeeMriStartDateInput.value = employee.mriStartDate || "";
+  elements.employeeOtStartDateInput.value = employee.otStartDate || "";
+  elements.employeeNightStartDateInput.value = employee.nightStartDate || "";
 }
 
 async function deleteEmployee(employeeId) {
@@ -878,6 +1523,23 @@ async function deleteEmployee(employeeId) {
   await saveData();
   renderAll();
   showMessage("직원이 삭제되었습니다.");
+}
+
+async function moveEmployee(employeeId, direction) {
+  const currentIndex = appData.employees.findIndex(employee => employee.id === employeeId);
+  if (currentIndex < 0) return;
+
+  const targetIndex = currentIndex + direction;
+  if (targetIndex < 0 || targetIndex >= appData.employees.length) return;
+
+  const nextEmployees = [...appData.employees];
+  [nextEmployees[currentIndex], nextEmployees[targetIndex]] = [nextEmployees[targetIndex], nextEmployees[currentIndex]];
+  appData.employees = nextEmployees;
+
+  await saveData();
+  renderAll();
+  loadSelectedRecordIntoForm();
+  showMessage("직원 순서를 저장했습니다. 같은 점수일 때 위에 있는 직원이 먼저 추천됩니다.");
 }
 
 function editRecord(dateText) {
@@ -930,6 +1592,28 @@ function exportCsv() {
   link.download = `조기출근_OT_기록_${getTodayText()}.csv`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function exportAttendanceCsv() {
+  const header = ["date", "name", "ot", "nightOt", "holidayOt", "flexOt", "off", "note"];
+  const rows = [...appData.attendanceRecords]
+    .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name, "ko"))
+    .map(record => [
+      record.date,
+      record.name,
+      record.ot,
+      record.nightOt,
+      record.holidayOt,
+      record.flexOt,
+      record.off === "토요일OFF" ? "" : record.off,
+      record.note
+    ]);
+
+  const csv = [header, ...rows]
+    .map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(","))
+    .join("\n");
+
+  downloadTextFile(`근태_기록_${getTodayText()}.csv`, `\ufeff${csv}`, "text/csv;charset=utf-8");
 }
 
 function downloadTextFile(fileName, text, mimeType) {
@@ -1000,6 +1684,21 @@ elements.calendarGrid.addEventListener("click", event => {
   loadSelectedRecordIntoForm();
 });
 
+elements.calendarGrid.addEventListener("mouseover", event => {
+  const tooltipTarget = event.target.closest("[data-tooltip]");
+  if (!tooltipTarget || !elements.calendarGrid.contains(tooltipTarget)) return;
+  showCalendarTooltip(tooltipTarget.dataset.tooltip, event);
+});
+
+elements.calendarGrid.addEventListener("mousemove", event => {
+  moveCalendarTooltip(event);
+});
+
+elements.calendarGrid.addEventListener("mouseout", event => {
+  if (event.relatedTarget && event.target.closest("[data-tooltip]")?.contains(event.relatedTarget)) return;
+  hideCalendarTooltip();
+});
+
 elements.showOtInputButton.addEventListener("click", () => {
   setInputSectionVisibility("ot");
   loadSelectedRecordIntoForm();
@@ -1008,6 +1707,10 @@ elements.showOtInputButton.addEventListener("click", () => {
 elements.showNightInputButton.addEventListener("click", () => {
   setInputSectionVisibility("night");
   loadSelectedRecordIntoForm();
+});
+
+elements.showAttendanceInputButton.addEventListener("click", () => {
+  setInputSectionVisibility("attendance");
 });
 
 elements.recommendButton.addEventListener("click", () => {
@@ -1033,6 +1736,16 @@ elements.algorithmHelpCloseButton.addEventListener("click", () => {
 elements.confirmRecordButton.addEventListener("click", saveRecord);
 elements.resetFormButton.addEventListener("click", resetRecommendationView);
 elements.exportCsvButton.addEventListener("click", exportCsv);
+elements.exportAttendanceCsvButton.addEventListener("click", exportAttendanceCsv);
+elements.saveAttendanceButton.addEventListener("click", saveAttendanceRecord);
+elements.saveSaturdayOffButton.addEventListener("click", saveSaturdayOff);
+elements.resetAttendanceButton.addEventListener("click", () => resetAttendanceForm());
+elements.attendanceOtInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
+elements.attendanceOtUsedInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
+elements.attendanceFlexOtInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
+elements.attendanceNameSelect.addEventListener("change", () => {
+  loadAttendanceRecordIntoForm(elements.selectedDateInput.value, elements.attendanceNameSelect.value);
+});
 elements.alternateMriButton.addEventListener("click", () => recommendAlternate("mri"));
 elements.alternateXrayButton.addEventListener("click", () => recommendAlternate("xray"));
 elements.manualMriSelect.addEventListener("change", () => {
@@ -1065,10 +1778,20 @@ elements.employeeForm.addEventListener("submit", async event => {
   const employee = {
     id,
     name,
-    canMri: elements.employeeCanMriInput.checked,
-    isOtEligible: elements.employeeEligibleInput.checked,
-    isNightEligible: elements.employeeNightEligibleInput.checked
+    mriStartDate: elements.employeeMriStartDateInput.value,
+    otStartDate: elements.employeeOtStartDateInput.value,
+    nightStartDate: elements.employeeNightStartDateInput.value,
+    hireDate: elements.employeeHireDateInput.value,
+    retireDate: elements.employeeRetireDateInput.value
   };
+  employee.canMri = Boolean(employee.mriStartDate);
+  employee.isOtEligible = Boolean(employee.otStartDate);
+  employee.isNightEligible = Boolean(employee.nightStartDate);
+
+  if (employee.hireDate && employee.retireDate && employee.hireDate > employee.retireDate) {
+    showMessage("퇴사일은 입사일보다 빠를 수 없습니다.", "error");
+    return;
+  }
 
   const existingIndex = appData.employees.findIndex(item => item.id === id);
   if (existingIndex >= 0) {
@@ -1089,6 +1812,8 @@ elements.cancelEmployeeEditButton.addEventListener("click", resetEmployeeForm);
 elements.employeeTableBody.addEventListener("click", event => {
   const button = event.target.closest("button");
   if (!button) return;
+  if (button.dataset.action === "move-employee-up") moveEmployee(button.dataset.id, -1);
+  if (button.dataset.action === "move-employee-down") moveEmployee(button.dataset.id, 1);
   if (button.dataset.action === "edit-employee") editEmployee(button.dataset.id);
   if (button.dataset.action === "delete-employee") deleteEmployee(button.dataset.id);
 });
@@ -1098,6 +1823,18 @@ elements.recordTableBody.addEventListener("click", event => {
   if (!button) return;
   if (button.dataset.action === "edit-record") editRecord(button.dataset.date);
   if (button.dataset.action === "delete-record") deleteRecord(button.dataset.date);
+});
+
+elements.attendanceTableBody.addEventListener("click", event => {
+  const button = event.target.closest("button");
+  if (!button) return;
+  if (button.dataset.action === "edit-attendance") {
+    setInputSectionVisibility("attendance");
+    loadAttendanceRecordIntoForm(button.dataset.date, button.dataset.name);
+  }
+  if (button.dataset.action === "delete-attendance") {
+    deleteAttendanceRecord(button.dataset.date, button.dataset.name);
+  }
 });
 
 async function initialize() {
