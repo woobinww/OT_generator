@@ -50,6 +50,7 @@ Windows에서는 `서버실행.cmd`를 더블클릭해도 서버를 실행할 �
 ```powershell
 $env:ADMIN_USERNAME="admin"
 $env:ADMIN_PASSWORD="원하는비밀번호"
+$env:INTEGRATION_KEY="외부연동용긴키"
 npm start
 ```
 
@@ -83,6 +84,30 @@ npm start
 일반 유저는 `http://localhost:3000/user.html`로 접속해 본인 계정으로 로그인하면 모바일 친화적인 조회 화면에서 본인 월간 요약과 달력을 확인할 수 있습니다. 일반 유저 화면에는 수정 기능과 마우스 호버 툴팁을 넣지 않았습니다.
 
 일반 유저 달력은 조출/야간 전체 근무 정보와 휴가/OFF 일정은 표시하되, OT 사용/탄력 사용 같은 개인 근태 시간 정보는 로그인한 본인 것만 표시합니다.
+
+## 외부 근태 프로그램 연동 API
+
+외부 근태 저장 프로그램은 로그인 쿠키 대신 연동키로 특정 월의 근태 정보를 가져올 수 있습니다. 운영 PC에서는 서버 실행 전 `INTEGRATION_KEY` 환경변수를 원하는 값으로 지정하세요. 지정하지 않으면 기본값은 `local-integration-key`입니다.
+
+JSON:
+
+```text
+GET http://서버IP:3000/api/integration/attendance?month=2026-05&key=연동키
+```
+
+CSV:
+
+```text
+GET http://서버IP:3000/api/integration/attendance.csv?month=2026-05&key=연동키
+```
+
+헤더 방식도 사용할 수 있습니다.
+
+```text
+X-Integration-Key: 연동키
+```
+
+응답 필드는 외부 연동용으로 `date,name,ot,nightOt,holidayOt,flexOt,off,note`를 고정 사용합니다. `토요일OFF`는 내부 표시용이므로 연동 응답의 `off`에는 빈 값으로 내려갑니다.
 
 ## 사용 방법
 

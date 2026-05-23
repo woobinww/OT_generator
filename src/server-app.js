@@ -6,6 +6,7 @@ const { importLocalData } = require("./migration");
 
 const publicDirectory = path.join(__dirname, "..", "public");
 const sessions = new Map();
+const integrationKey = process.env.INTEGRATION_KEY || "local-integration-key";
 
 function createApp({ database }) {
   return async function app(request, response) {
@@ -33,6 +34,26 @@ function createApp({ database }) {
 async function handleApiRequest({ request, response, url, database }) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     sendJson(response, 200, { ok: true });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/integration/attendance") {
+    if (!requireIntegrationKey(request, response, url)) return;
+
+    const month = getRequestedMonth(url);
+    sendJson(response, 200, {
+      month,
+      rows: getIntegrationAttendanceRows(database, month)
+    });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/integration/attendance.csv") {
+    if (!requireIntegrationKey(request, response, url)) return;
+
+    const month = getRequestedMonth(url);
+    const rows = getIntegrationAttendanceRows(database, month);
+    sendCsv(response, `attendance-${month}.csv`, buildAttendanceCsv(rows));
     return;
   }
 
@@ -219,6 +240,37 @@ function getMonthlySummary(database, month, employeeId = null) {
     GROUP BY e.id, e.name
     ORDER BY e.display_order ASC, e.id ASC
   `).all(...params);
+}
+
+function getIntegrationAttendanceRows(database, month) {
+  return database.prepare(`
+    SELECT
+      a.date,
+      e.name,
+      a.ot,
+      a.night_ot AS nightOt,
+      a.holiday_ot AS holidayOt,
+      a.flex_ot AS flexOt,
+      CASE
+        WHEN a.internal_off = '토요일OFF' THEN ''
+        WHEN a.off = '토요일OFF' THEN ''
+        ELSE a.off
+      END AS off,
+      a.note
+    FROM attendance_records a
+    JOIN employees e ON e.id = a.employee_id
+    WHERE a.date LIKE ?
+    ORDER BY a.date ASC, e.display_order ASC, e.id ASC
+  `).all(`${month}-%`).map(row => ({
+    date: row.date,
+    name: row.name,
+    ot: normalizeNumber(row.ot),
+    nightOt: normalizeNumber(row.nightOt),
+    holidayOt: normalizeNumber(row.holidayOt),
+    flexOt: normalizeNumber(row.flexOt),
+    off: row.off || "",
+    note: row.note || ""
+  }));
 }
 
 function getEmployees(database) {
@@ -464,6 +516,25 @@ function requireSession(request, response) {
   return session;
 }
 
+function requireIntegrationKey(request, response, url) {
+  const requestKey = request.headers["x-integration-key"] || url.searchParams.get("key") || "";
+  if (String(requestKey) !== integrationKey) {
+    sendJson(response, 401, { error: "연동키가 올바르지 않습니다." });
+    return false;
+  }
+  return true;
+}
+
+function getRequestedMonth(url) {
+  const month = url.searchParams.get("month") || getCurrentMonth();
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    const error = new Error("month는 YYYY-MM 형식으로 입력해 주세요.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return month;
+}
+
 function getSessionId(request) {
   const cookie = request.headers.cookie || "";
   const match = cookie.match(/(?:^|;\s*)session=([^;]+)/);
@@ -487,9 +558,33 @@ function sendJson(response, statusCode, payload) {
   response.end(JSON.stringify(payload));
 }
 
+function sendCsv(response, fileName, csv) {
+  response.writeHead(200, {
+    "Content-Type": "text/csv; charset=utf-8",
+    "Content-Disposition": `attachment; filename="${fileName}"`
+  });
+  response.end(`\ufeff${csv}`);
+}
+
 function sendText(response, statusCode, text) {
   response.writeHead(statusCode, { "Content-Type": "text/plain; charset=utf-8" });
   response.end(text);
+}
+
+function buildAttendanceCsv(rows) {
+  const header = ["date", "name", "ot", "nightOt", "holidayOt", "flexOt", "off", "note"];
+  const values = rows.map(row => header.map(key => row[key]));
+  return [header, ...values].map(row => row.map(escapeCsvValue).join(",")).join("\n");
+}
+
+function escapeCsvValue(value) {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+function normalizeNumber(value) {
+  const number = Number(value || 0);
+  if (number === 0) return "";
+  return Number.isInteger(number) ? number : number;
 }
 
 function getCurrentMonth() {
