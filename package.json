@@ -1,0 +1,13 @@
+{
+  "name": "radiology-work-attendance",
+  "version": "0.2.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node --no-warnings=ExperimentalWarning server.js",
+    "check": "node --check server.js && node --check src/database.js && node --check src/migration.js && node --check src/server-app.js && node --check public/app.js"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

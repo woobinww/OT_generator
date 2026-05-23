@@ -161,6 +161,37 @@ th {
   grid-row: span 2;
 }
 
+.admin-login-screen {
+  align-items: center;
+  display: grid;
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.admin-login-card {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(220, 229, 221, 0.9);
+  border-radius: 28px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 0.9rem;
+  margin: 0 auto;
+  max-width: 30rem;
+  padding: 1.5rem;
+  width: 100%;
+}
+
+.admin-login-card h1,
+.admin-login-card p {
+  margin: 0;
+}
+
+.admin-login-card a {
+  color: var(--primary);
+  font-weight: 900;
+  text-align: center;
+}
+
 .section-title {
   align-items: center;
   display: flex;
@@ -457,6 +488,33 @@ th {
   width: auto;
 }
 
+.server-login-grid,
+.server-import-box {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0.9rem;
+}
+
+.server-actions,
+.server-import-box .small-note {
+  grid-column: 1 / -1;
+}
+
+.server-status {
+  margin: 0.2rem 0 0;
+}
+
+.server-summary-box {
+  border-top: 1px solid var(--line);
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.server-summary-box h3 {
+  margin: 0;
+}
+
 .assignment-card {
   background: rgba(255, 255, 255, 0.62);
   border: 1px solid rgba(120, 96, 65, 0.16);
@@ -614,7 +672,9 @@ th {
   .employee-form,
   .attendance-grid,
   .night-assignment-grid,
-  .saturday-off-box {
+  .saturday-off-box,
+  .server-login-grid,
+  .server-import-box {
     grid-template-columns: 1fr;
   }
 

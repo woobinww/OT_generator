@@ -73,8 +73,15 @@ let appData = {
 
 let currentRecommendation = null;
 let calendarTooltipElement = null;
+let serverViewMode = false;
 
 const elements = {
+  adminLoginScreen: document.querySelector("#adminLoginScreen"),
+  adminAppShell: document.querySelector("#adminAppShell"),
+  adminGateUsernameInput: document.querySelector("#adminGateUsernameInput"),
+  adminGatePasswordInput: document.querySelector("#adminGatePasswordInput"),
+  adminGateLoginButton: document.querySelector("#adminGateLoginButton"),
+  adminGateMessage: document.querySelector("#adminGateMessage"),
   selectedDateInput: document.querySelector("#selectedDateInput"),
   selectedDateDisplay: document.querySelector("#selectedDateDisplay"),
   selectedWeekday: document.querySelector("#selectedWeekday"),
@@ -142,7 +149,28 @@ const elements = {
   cancelEmployeeEditButton: document.querySelector("#cancelEmployeeEditButton"),
   employeeTableBody: document.querySelector("#employeeTableBody"),
   recordTableBody: document.querySelector("#recordTableBody"),
-  attendanceTableBody: document.querySelector("#attendanceTableBody")
+  attendanceTableBody: document.querySelector("#attendanceTableBody"),
+  serverStatusBox: document.querySelector("#serverStatusBox"),
+  serverUsernameInput: document.querySelector("#serverUsernameInput"),
+  serverPasswordInput: document.querySelector("#serverPasswordInput"),
+  serverLoginButton: document.querySelector("#serverLoginButton"),
+  serverLogoutButton: document.querySelector("#serverLogoutButton"),
+  serverImportFileInput: document.querySelector("#serverImportFileInput"),
+  serverImportButton: document.querySelector("#serverImportButton"),
+  serverCalendarButton: document.querySelector("#serverCalendarButton"),
+  serverSummaryButton: document.querySelector("#serverSummaryButton"),
+  serverSaveCurrentButton: document.querySelector("#serverSaveCurrentButton"),
+  serverSummaryBody: document.querySelector("#serverSummaryBody"),
+  serverUsersRefreshButton: document.querySelector("#serverUsersRefreshButton"),
+  serverUserEmployeeSelect: document.querySelector("#serverUserEmployeeSelect"),
+  serverNewUserRoleSelect: document.querySelector("#serverNewUserRoleSelect"),
+  serverNewUsernameInput: document.querySelector("#serverNewUsernameInput"),
+  serverNewPasswordInput: document.querySelector("#serverNewPasswordInput"),
+  serverCreateUserButton: document.querySelector("#serverCreateUserButton"),
+  serverPasswordUserSelect: document.querySelector("#serverPasswordUserSelect"),
+  serverChangePasswordInput: document.querySelector("#serverChangePasswordInput"),
+  serverChangePasswordButton: document.querySelector("#serverChangePasswordButton"),
+  serverUsersBody: document.querySelector("#serverUsersBody")
 };
 
 function formatLocalDate(date) {
@@ -1655,6 +1683,270 @@ function restoreJson(file) {
   reader.readAsText(file, "utf-8");
 }
 
+function setServerStatus(message, type = "info") {
+  if (!elements.serverStatusBox) return;
+  elements.serverStatusBox.textContent = message;
+  elements.serverStatusBox.style.background = type === "error" ? "#ffe0dd" : "#e9f5ef";
+  elements.serverStatusBox.style.color = type === "error" ? "#9f241c" : "#144b36";
+}
+
+function setAdminGateMessage(message, type = "info") {
+  elements.adminGateMessage.textContent = message;
+  elements.adminGateMessage.classList.remove("hidden");
+  elements.adminGateMessage.style.background = type === "error" ? "#ffe0dd" : "#e9f5ef";
+  elements.adminGateMessage.style.color = type === "error" ? "#9f241c" : "#144b36";
+}
+
+function showAdminApp() {
+  elements.adminLoginScreen.classList.add("hidden");
+  elements.adminAppShell.classList.remove("hidden");
+}
+
+function showAdminLogin() {
+  elements.adminLoginScreen.classList.remove("hidden");
+  elements.adminAppShell.classList.add("hidden");
+}
+
+function getAdminLoginCredentials() {
+  return {
+    username: elements.adminGateUsernameInput.value.trim() || elements.serverUsernameInput.value.trim(),
+    password: elements.adminGatePasswordInput.value || elements.serverPasswordInput.value
+  };
+}
+
+async function serverRequest(path, options = {}) {
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    },
+    ...options
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || "서버 요청에 실패했습니다.");
+  }
+  return payload;
+}
+
+async function checkServerSession() {
+  if (!elements.serverStatusBox) return;
+  try {
+    const payload = await serverRequest("/api/auth/me");
+    if (payload.user.role !== "admin") {
+      window.location.href = "./user.html";
+      return;
+    }
+    showAdminApp();
+    setServerStatus(`${payload.user.username} 계정으로 로그인 중입니다. 권한: ${payload.user.role}`);
+    if (payload.user.role === "admin") {
+      loadServerUsersAndEmployees();
+    }
+  } catch (error) {
+    showAdminLogin();
+    setServerStatus("서버 로그인 전입니다. 서버 기능을 쓰려면 관리자 로그인이 필요합니다.", "error");
+  }
+}
+
+async function loginServerAdmin(usernameOverride = "", passwordOverride = "") {
+  try {
+    const credentials = getAdminLoginCredentials();
+    const username = usernameOverride || credentials.username;
+    const password = passwordOverride || credentials.password;
+    if (!username || !password) {
+      setServerStatus("관리자 ID와 비밀번호를 입력해 주세요.", "error");
+      return;
+    }
+
+    const payload = await serverRequest("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password })
+    });
+    elements.serverPasswordInput.value = "";
+    elements.adminGatePasswordInput.value = "";
+    if (payload.user.role !== "admin") {
+      window.location.href = "./user.html";
+      return;
+    }
+    showAdminApp();
+    setServerStatus(`${payload.user.username} 계정으로 로그인했습니다. 권한: ${payload.user.role}`);
+    if (payload.user.role === "admin") {
+      loadServerUsersAndEmployees();
+    }
+  } catch (error) {
+    setServerStatus(error.message, "error");
+    setAdminGateMessage(error.message, "error");
+  }
+}
+
+async function logoutServerAdmin() {
+  try {
+    await serverRequest("/api/auth/logout", { method: "POST", body: "{}" });
+    showAdminLogin();
+    setServerStatus("로그아웃했습니다.");
+  } catch (error) {
+    setServerStatus(error.message, "error");
+  }
+}
+
+async function importLocalBackupToServer() {
+  const file = elements.serverImportFileInput.files[0];
+  if (!file) {
+    setServerStatus("서버로 가져올 JSON 백업 파일을 선택해 주세요.", "error");
+    return;
+  }
+
+  if (!window.confirm("선택한 JSON 백업 데이터를 서버 DB로 가져올까요? 같은 직원/날짜 데이터는 갱신됩니다.")) {
+    return;
+  }
+
+  try {
+    const text = await file.text();
+    const localData = JSON.parse(text);
+    const payload = await serverRequest("/api/admin/import-local-data", {
+      method: "POST",
+      body: JSON.stringify(localData)
+    });
+    setServerStatus(`서버 DB 가져오기 완료: 직원 ${payload.summary.employees}명, 근무기록 ${payload.summary.workRecords}건, 근태 ${payload.summary.attendanceRecords}건`);
+  } catch (error) {
+    setServerStatus(error.message || "서버 DB 가져오기에 실패했습니다.", "error");
+  }
+}
+
+function formatServerNumber(value) {
+  const numberValue = Number(value || 0);
+  return Number.isInteger(numberValue) ? String(numberValue) : String(numberValue);
+}
+
+async function loadServerMonthlySummary() {
+  try {
+    const month = getMonthKey(elements.selectedDateInput.value);
+    const payload = await serverRequest(`/api/admin/monthly-summary?month=${encodeURIComponent(month)}`);
+    elements.serverSummaryBody.innerHTML = payload.rows.map(row => `
+      <tr>
+        <td>${escapeHtml(row.name)}</td>
+        <td>${formatServerNumber(row.totalOt)}</td>
+        <td>${formatServerNumber(row.otEarned)}</td>
+        <td>${formatServerNumber(row.otUsed)}</td>
+        <td>${formatServerNumber(row.nightOt)}</td>
+        <td>${formatServerNumber(row.holidayOt)}</td>
+        <td>${formatServerNumber(row.flexOt)}</td>
+        <td>${row.annualLeaveCount || 0}</td>
+        <td>${row.morningHalfCount || 0}</td>
+        <td>${row.afternoonHalfCount || 0}</td>
+      </tr>
+    `).join("");
+    setServerStatus(`${payload.month} 서버 월간 요약을 불러왔습니다.`);
+  } catch (error) {
+    setServerStatus(error.message || "서버 월간 요약을 불러오지 못했습니다.", "error");
+  }
+}
+
+async function loadServerCalendarMonth() {
+  try {
+    const month = getMonthKey(elements.selectedDateInput.value);
+    const payload = await serverRequest(`/api/admin/calendar?month=${encodeURIComponent(month)}`);
+    appData = normalizeData(payload.data);
+    serverViewMode = true;
+    renderAll();
+    loadSelectedRecordIntoForm();
+    setServerStatus(`${payload.month} 서버 DB 달력을 화면에 불러왔습니다. 브라우저 LocalStorage에는 저장하지 않았습니다.`);
+  } catch (error) {
+    setServerStatus(error.message || "서버 달력을 불러오지 못했습니다.", "error");
+  }
+}
+
+async function loadServerUsersAndEmployees() {
+  try {
+    const [employeePayload, userPayload] = await Promise.all([
+      serverRequest("/api/admin/employees"),
+      serverRequest("/api/admin/users")
+    ]);
+
+    elements.serverUserEmployeeSelect.innerHTML = `<option value="">직원 선택</option>${employeePayload.employees.map(employee => `
+      <option value="${employee.id}">${escapeHtml(employee.name)}</option>
+    `).join("")}`;
+    elements.serverPasswordUserSelect.innerHTML = `<option value="">계정 선택</option>${userPayload.users.map(user => `
+      <option value="${user.id}">${escapeHtml(user.username)} (${user.role === "admin" ? "관리자" : "일반"})</option>
+    `).join("")}`;
+
+    elements.serverUsersBody.innerHTML = userPayload.users.map(user => `
+      <tr>
+        <td>${escapeHtml(user.username)}</td>
+        <td>${user.role === "admin" ? "관리자" : "일반"}</td>
+        <td>${escapeHtml(user.employeeName || "-")}</td>
+      </tr>
+    `).join("");
+    setServerStatus("서버 계정 목록을 불러왔습니다.");
+  } catch (error) {
+    setServerStatus(error.message || "서버 계정 목록을 불러오지 못했습니다.", "error");
+  }
+}
+
+async function createServerUser() {
+  try {
+    const username = elements.serverNewUsernameInput.value.trim();
+    const password = elements.serverNewPasswordInput.value;
+    const role = elements.serverNewUserRoleSelect.value;
+    const employeeId = elements.serverUserEmployeeSelect.value;
+
+    if (!username || !password || (role === "user" && !employeeId)) {
+      setServerStatus("사용자 ID, 비밀번호를 입력하고 일반 유저는 직원을 선택해 주세요.", "error");
+      return;
+    }
+
+    await serverRequest("/api/admin/users", {
+      method: "POST",
+      body: JSON.stringify({ username, password, role, employeeId })
+    });
+
+    elements.serverNewUsernameInput.value = "";
+    elements.serverNewPasswordInput.value = "";
+    setServerStatus(`${username} ${role === "admin" ? "관리자" : "일반 유저"} 계정을 생성했습니다.`);
+    await loadServerUsersAndEmployees();
+  } catch (error) {
+    setServerStatus(error.message || "계정을 생성하지 못했습니다.", "error");
+  }
+}
+
+async function changeServerUserPassword() {
+  try {
+    const userId = elements.serverPasswordUserSelect.value;
+    const password = elements.serverChangePasswordInput.value;
+    if (!userId || !password) {
+      setServerStatus("비밀번호를 변경할 계정과 새 비밀번호를 입력해 주세요.", "error");
+      return;
+    }
+    await serverRequest(`/api/admin/users/${encodeURIComponent(userId)}/password`, {
+      method: "POST",
+      body: JSON.stringify({ password })
+    });
+    elements.serverChangePasswordInput.value = "";
+    setServerStatus("비밀번호를 변경했습니다.");
+  } catch (error) {
+    setServerStatus(error.message || "비밀번호를 변경하지 못했습니다.", "error");
+  }
+}
+
+async function saveCurrentViewToServer() {
+  if (!window.confirm("현재 화면의 직원/근무/근태 데이터를 서버 DB에 저장할까요? 같은 직원/날짜 데이터는 갱신됩니다.")) {
+    return;
+  }
+
+  try {
+    const payload = await serverRequest("/api/admin/import-local-data?replace=true", {
+      method: "POST",
+      body: JSON.stringify(appData)
+    });
+    serverViewMode = true;
+    setServerStatus(`서버 DB 저장 완료: 직원 ${payload.summary.employees}명, 근무기록 ${payload.summary.workRecords}건, 근태 ${payload.summary.attendanceRecords}건, 삭제 ${payload.summary.deletedEmployees + payload.summary.deletedWorkRecords + payload.summary.deletedAttendanceRecords}건`);
+    await loadServerMonthlySummary();
+  } catch (error) {
+    setServerStatus(error.message || "현재 화면 데이터를 서버 DB에 저장하지 못했습니다.", "error");
+  }
+}
+
 elements.selectedDateInput.addEventListener("change", () => {
   renderAll();
   loadSelectedRecordIntoForm();
@@ -1765,6 +2057,18 @@ elements.restoreJsonInput.addEventListener("change", event => {
   if (file) restoreJson(file);
   event.target.value = "";
 });
+elements.serverLoginButton.addEventListener("click", loginServerAdmin);
+elements.adminGateLoginButton.addEventListener("click", () => {
+  loginServerAdmin(elements.adminGateUsernameInput.value.trim(), elements.adminGatePasswordInput.value);
+});
+elements.serverLogoutButton.addEventListener("click", logoutServerAdmin);
+elements.serverImportButton.addEventListener("click", importLocalBackupToServer);
+elements.serverCalendarButton.addEventListener("click", loadServerCalendarMonth);
+elements.serverSummaryButton.addEventListener("click", loadServerMonthlySummary);
+elements.serverSaveCurrentButton.addEventListener("click", saveCurrentViewToServer);
+elements.serverUsersRefreshButton.addEventListener("click", loadServerUsersAndEmployees);
+elements.serverCreateUserButton.addEventListener("click", createServerUser);
+elements.serverChangePasswordButton.addEventListener("click", changeServerUserPassword);
 
 elements.employeeForm.addEventListener("submit", async event => {
   event.preventDefault();
@@ -1843,6 +2147,7 @@ async function initialize() {
     await loadData();
     renderAll();
     loadSelectedRecordIntoForm();
+    checkServerSession();
     showMessage("샘플 데이터가 준비되어 있습니다. 실제 직원명으로 수정해 사용하세요.");
   } catch (error) {
     showMessage(error.message, "error");

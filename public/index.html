@@ -7,6 +7,25 @@
     <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
+    <section id="adminLoginScreen" class="admin-login-screen">
+      <div class="admin-login-card">
+        <p class="eyebrow">영상의학과 근무·근태 관리</p>
+        <h1>로그인</h1>
+        <p class="muted">계정 권한에 따라 관리자 화면 또는 일반 조회 화면으로 이동합니다.</p>
+        <label>
+          사용자 ID
+          <input id="adminGateUsernameInput" type="text" placeholder="아이디" autocomplete="username">
+        </label>
+        <label>
+          비밀번호
+          <input id="adminGatePasswordInput" type="password" placeholder="비밀번호" autocomplete="current-password">
+        </label>
+        <button id="adminGateLoginButton" class="primary" type="button">로그인</button>
+        <p id="adminGateMessage" class="message hidden"></p>
+      </div>
+    </section>
+
+    <div id="adminAppShell" class="hidden">
     <header class="topbar">
       <div>
         <p class="eyebrow">영상의학과 업무 자동화</p>
@@ -360,6 +379,128 @@
           </table>
         </div>
       </section>
+
+      <section class="panel server-admin-panel">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">서버 전환</p>
+            <h2>서버 관리자 도구</h2>
+          </div>
+        </div>
+        <div id="serverStatusBox" class="message server-status">서버 상태를 확인 중입니다.</div>
+        <div class="server-login-grid">
+          <label>
+            관리자 ID
+            <input id="serverUsernameInput" type="text" placeholder="admin" autocomplete="username">
+          </label>
+          <label>
+            비밀번호
+            <input id="serverPasswordInput" type="password" placeholder="비밀번호" autocomplete="current-password">
+          </label>
+          <div class="button-row server-actions">
+            <button id="serverLoginButton" class="primary" type="button">서버 로그인</button>
+            <button id="serverLogoutButton" type="button">로그아웃</button>
+          </div>
+        </div>
+        <div class="server-import-box">
+          <label>
+            LocalStorage JSON 백업 파일
+            <input id="serverImportFileInput" type="file" accept="application/json,.json">
+          </label>
+          <button id="serverImportButton" type="button">서버 DB로 가져오기</button>
+          <p class="muted small-note">기존 `JSON 백업` 파일을 선택하면 직원, 조출/야간, 근태 기록을 SQLite DB로 옮깁니다. 관리자 로그인 후 사용할 수 있습니다.</p>
+        </div>
+        <div class="server-summary-box">
+          <div class="section-title compact-title">
+            <div>
+              <p class="eyebrow">서버 DB 조회</p>
+              <h3>서버 월간 근태 요약</h3>
+            </div>
+            <div class="button-row">
+              <button id="serverCalendarButton" type="button">선택 월 서버 달력 불러오기</button>
+              <button id="serverSummaryButton" type="button">선택 월 서버 요약 보기</button>
+              <button id="serverSaveCurrentButton" class="primary" type="button">현재 화면을 서버 DB에 저장</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>직원</th>
+                  <th>ot 합계</th>
+                  <th>OT 한 시간</th>
+                  <th>OT 사용</th>
+                  <th>nightOt</th>
+                  <th>holidayOt</th>
+                  <th>flexOt</th>
+                  <th>연차</th>
+                  <th>전반</th>
+                  <th>후반</th>
+                </tr>
+              </thead>
+              <tbody id="serverSummaryBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="server-summary-box">
+          <div class="section-title compact-title">
+            <div>
+              <p class="eyebrow">권한 관리</p>
+              <h3>일반 유저 계정 생성</h3>
+            </div>
+            <button id="serverUsersRefreshButton" type="button">계정 목록 새로고침</button>
+          </div>
+          <div class="server-login-grid">
+            <label>
+              직원
+              <select id="serverUserEmployeeSelect"></select>
+            </label>
+            <label>
+              권한
+              <select id="serverNewUserRoleSelect">
+                <option value="user">일반 유저</option>
+                <option value="admin">관리자</option>
+              </select>
+            </label>
+            <label>
+              사용자 ID
+              <input id="serverNewUsernameInput" type="text" placeholder="예: woobin">
+            </label>
+            <label>
+              비밀번호
+              <input id="serverNewPasswordInput" type="password" placeholder="초기 비밀번호">
+            </label>
+            <div class="button-row server-actions">
+              <button id="serverCreateUserButton" class="primary" type="button">일반 유저 생성</button>
+            </div>
+          </div>
+          <div class="server-login-grid">
+            <label>
+              비밀번호 변경 계정
+              <select id="serverPasswordUserSelect"></select>
+            </label>
+            <label>
+              새 비밀번호
+              <input id="serverChangePasswordInput" type="password" placeholder="새 비밀번호">
+            </label>
+            <div class="button-row server-actions">
+              <button id="serverChangePasswordButton" type="button">비밀번호 변경</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>권한</th>
+                  <th>연결 직원</th>
+                </tr>
+              </thead>
+              <tbody id="serverUsersBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </main>
 
     <dialog id="algorithmHelpDialog" class="help-dialog">
@@ -383,6 +524,7 @@
         </ul>
       </div>
     </dialog>
+    </div>
 
     <script src="./app.js"></script>
   </body>
