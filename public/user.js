@@ -1,17 +1,22 @@
 const elements = {
   loginPanel: document.querySelector("#loginPanel"),
   summaryPanel: document.querySelector("#summaryPanel"),
+  passwordPanel: document.querySelector("#passwordPanel"),
   calendarPanel: document.querySelector("#calendarPanel"),
   usernameInput: document.querySelector("#usernameInput"),
   passwordInput: document.querySelector("#passwordInput"),
   loginButton: document.querySelector("#loginButton"),
   logoutButton: document.querySelector("#logoutButton"),
+  changePasswordToggleButton: document.querySelector("#changePasswordToggleButton"),
   monthInput: document.querySelector("#monthInput"),
   reloadButton: document.querySelector("#reloadButton"),
   summaryTitle: document.querySelector("#summaryTitle"),
   summaryCards: document.querySelector("#summaryCards"),
   calendarTitle: document.querySelector("#calendarTitle"),
   calendarGrid: document.querySelector("#calendarGrid"),
+  currentPasswordInput: document.querySelector("#currentPasswordInput"),
+  newPasswordInput: document.querySelector("#newPasswordInput"),
+  changePasswordButton: document.querySelector("#changePasswordButton"),
   messageBox: document.querySelector("#messageBox")
 };
 
@@ -56,6 +61,10 @@ async function login() {
     });
     currentUser = payload.user;
     elements.passwordInput.value = "";
+    if (currentUser.role === "admin") {
+      window.location.href = "./index.html";
+      return;
+    }
     await loadDashboard();
   } catch (error) {
     showMessage(error.message, "error");
@@ -65,16 +74,17 @@ async function login() {
 async function logout() {
   await api("/api/auth/logout", { method: "POST", body: "{}" }).catch(() => {});
   currentUser = null;
-  elements.loginPanel.classList.remove("hidden");
-  elements.summaryPanel.classList.add("hidden");
-  elements.calendarPanel.classList.add("hidden");
-  showMessage("로그아웃했습니다.");
+  window.location.href = "./index.html";
 }
 
 async function checkSession() {
   try {
     const payload = await api("/api/auth/me");
     currentUser = payload.user;
+    if (currentUser.role === "admin") {
+      window.location.href = "./index.html";
+      return;
+    }
     await loadDashboard();
   } catch {
     elements.loginPanel.classList.remove("hidden");
@@ -85,8 +95,30 @@ async function loadDashboard() {
   hideMessage();
   elements.loginPanel.classList.add("hidden");
   elements.summaryPanel.classList.remove("hidden");
+  elements.passwordPanel.classList.add("hidden");
   elements.calendarPanel.classList.remove("hidden");
   await Promise.all([loadSummary(), loadCalendar()]);
+}
+
+function togglePasswordPanel() {
+  elements.passwordPanel.classList.toggle("hidden");
+}
+
+async function changeOwnPassword() {
+  try {
+    const currentPassword = elements.currentPasswordInput.value;
+    const newPassword = elements.newPasswordInput.value;
+    await api("/api/auth/password", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, newPassword })
+    });
+    elements.currentPasswordInput.value = "";
+    elements.newPasswordInput.value = "";
+    elements.passwordPanel.classList.add("hidden");
+    showMessage("비밀번호를 변경했습니다.");
+  } catch (error) {
+    showMessage(error.message, "error");
+  }
 }
 
 async function loadSummary() {
@@ -208,6 +240,8 @@ function escapeHtml(value) {
 elements.monthInput.value = getTodayMonth();
 elements.loginButton.addEventListener("click", login);
 elements.logoutButton.addEventListener("click", logout);
+elements.changePasswordToggleButton.addEventListener("click", togglePasswordPanel);
+elements.changePasswordButton.addEventListener("click", changeOwnPassword);
 elements.reloadButton.addEventListener("click", loadDashboard);
 elements.monthInput.addEventListener("change", loadDashboard);
 

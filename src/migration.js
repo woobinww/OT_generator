@@ -1,5 +1,8 @@
 function importLocalData(database, localData, options = {}) {
   validateLocalData(localData);
+  const expectedVersion = Number.isFinite(Number(options.expectedVersion))
+    ? Number(options.expectedVersion)
+    : null;
 
   const employeeIdMap = new Map();
   const summary = {
@@ -8,11 +11,20 @@ function importLocalData(database, localData, options = {}) {
     attendanceRecords: 0,
     deletedWorkRecords: 0,
     deletedAttendanceRecords: 0,
-    deletedEmployees: 0
+    deletedEmployees: 0,
+    version: 0
   };
 
-  database.exec("BEGIN");
+  database.exec("BEGIN IMMEDIATE");
   try {
+    const currentVersion = getSyncVersion(database);
+    if (expectedVersion !== null && expectedVersion !== currentVersion) {
+      const error = new Error("서버 데이터가 다른 PC에서 먼저 변경되었습니다. 서버에서 다시 불러온 뒤 다시 저장해 주세요.");
+      error.statusCode = 409;
+      error.latestVersion = currentVersion;
+      throw error;
+    }
+
     if (options.replace) {
       const deleteSummary = deleteMissingRows(database, localData);
       summary.deletedWorkRecords = deleteSummary.deletedWorkRecords;
@@ -38,6 +50,15 @@ function importLocalData(database, localData, options = {}) {
       upsertAttendanceRecord(database, record, employeeId);
       summary.attendanceRecords += 1;
     });
+
+    const nextVersion = currentVersion + 1;
+    database.prepare(`
+      UPDATE sync_meta
+      SET version = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = 1
+    `).run(nextVersion);
+    summary.version = nextVersion;
 
     database.exec("COMMIT");
   } catch (error) {
@@ -113,6 +134,11 @@ function validateLocalData(localData) {
   if (!Array.isArray(localData.attendanceRecords)) {
     localData.attendanceRecords = [];
   }
+}
+
+function getSyncVersion(database) {
+  const row = database.prepare("SELECT version FROM sync_meta WHERE id = 1").get();
+  return Number(row?.version || 0);
 }
 
 function upsertEmployee(database, employee, index) {

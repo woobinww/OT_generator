@@ -12,7 +12,10 @@
         <p class="eyebrow">영상의학과 근무·근태 관리</p>
         <h1>내 근무·근태 조회</h1>
       </div>
-      <button id="logoutButton" type="button">로그아웃</button>
+      <div class="user-topbar-actions">
+        <button id="changePasswordToggleButton" type="button">비밀번호 변경</button>
+        <button id="logoutButton" type="button">로그아웃</button>
+      </div>
     </header>
 
     <main class="user-layout">
@@ -39,6 +42,27 @@
           <input id="monthInput" type="month">
         </div>
         <div id="summaryCards" class="summary-grid"></div>
+      </section>
+
+      <section id="passwordPanel" class="panel hidden">
+        <div class="section-row">
+          <div>
+            <p class="eyebrow">계정 관리</p>
+            <h2>내 비밀번호 변경</h2>
+          </div>
+        </div>
+        <div class="password-grid">
+          <label>
+            현재 비밀번호
+            <input id="currentPasswordInput" type="password" autocomplete="current-password">
+          </label>
+          <label>
+            새 비밀번호
+            <input id="newPasswordInput" type="password" autocomplete="new-password">
+          </label>
+        </div>
+        <button id="changePasswordButton" class="primary" type="button">비밀번호 변경</button>
+        <p class="guide-text muted">로그인한 본인 계정의 비밀번호만 바꿀 수 있습니다.</p>
       </section>
 
       <section id="calendarPanel" class="panel hidden">

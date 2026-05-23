@@ -1,6 +1,4 @@
 const weekdayNames = ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일"];
-const storageKey = "earlyOtFairSchedulerData";
-
 const defaultSettings = {
   operatingDays: [1, 2, 3, 4, 5, 6],
   defaultOtDays: [2, 3, 4, 5, 6],
@@ -74,6 +72,9 @@ let appData = {
 let currentRecommendation = null;
 let calendarTooltipElement = null;
 let serverViewMode = false;
+let serverAutoSyncEnabled = false;
+let serverAutoSyncTimer = null;
+let serverSyncVersion = null;
 
 const elements = {
   adminLoginScreen: document.querySelector("#adminLoginScreen"),
@@ -96,7 +97,6 @@ const elements = {
   nightInputSection: document.querySelector("#nightInputSection"),
   attendanceInputSection: document.querySelector("#attendanceInputSection"),
   recommendButton: document.querySelector("#recommendButton"),
-  tomorrowPreviewButton: document.querySelector("#tomorrowPreviewButton"),
   algorithmHelpButton: document.querySelector("#algorithmHelpButton"),
   algorithmHelpDialog: document.querySelector("#algorithmHelpDialog"),
   algorithmHelpCloseButton: document.querySelector("#algorithmHelpCloseButton"),
@@ -151,15 +151,13 @@ const elements = {
   recordTableBody: document.querySelector("#recordTableBody"),
   attendanceTableBody: document.querySelector("#attendanceTableBody"),
   serverStatusBox: document.querySelector("#serverStatusBox"),
+  serverReloadButton: document.querySelector("#serverReloadButton"),
   serverUsernameInput: document.querySelector("#serverUsernameInput"),
   serverPasswordInput: document.querySelector("#serverPasswordInput"),
   serverLoginButton: document.querySelector("#serverLoginButton"),
   serverLogoutButton: document.querySelector("#serverLogoutButton"),
   serverImportFileInput: document.querySelector("#serverImportFileInput"),
   serverImportButton: document.querySelector("#serverImportButton"),
-  serverCalendarButton: document.querySelector("#serverCalendarButton"),
-  serverSummaryButton: document.querySelector("#serverSummaryButton"),
-  serverSaveCurrentButton: document.querySelector("#serverSaveCurrentButton"),
   serverSummaryBody: document.querySelector("#serverSummaryBody"),
   serverUsersRefreshButton: document.querySelector("#serverUsersRefreshButton"),
   serverUserEmployeeSelect: document.querySelector("#serverUserEmployeeSelect"),
@@ -443,18 +441,40 @@ function validateImportedData(data) {
 }
 
 function loadData() {
-  const savedData = localStorage.getItem(storageKey);
-  if (!savedData) {
-    appData = createInitialData();
-    saveData();
-    return;
-  }
-
-  appData = normalizeData(JSON.parse(savedData));
+  appData = createInitialData();
 }
 
-function saveData() {
-  localStorage.setItem(storageKey, JSON.stringify(appData));
+function saveData(options = {}) {
+  if (options.syncServer !== false) {
+    scheduleServerAutoSync();
+  }
+}
+
+function scheduleServerAutoSync() {
+  if (!serverAutoSyncEnabled) return;
+  clearTimeout(serverAutoSyncTimer);
+  serverAutoSyncTimer = setTimeout(() => {
+    syncLocalDataToServer().catch(error => {
+      console.error(error);
+      if (error.status === 409) {
+        serverAutoSyncEnabled = false;
+        setServerRecoveryButtonVisible(true);
+        setServerStatus(error.message || "서버 동기화 충돌이 발생했습니다. 서버에서 다시 불러온 뒤 저장해 주세요.", "error");
+        return;
+      }
+      setServerStatus(error.message || "저장은 되었지만 서버 자동 동기화에 실패했습니다.", "error");
+    });
+  }, 300);
+}
+
+async function syncLocalDataToServer() {
+  if (!serverAutoSyncEnabled) return;
+  const payload = await serverRequest("/api/admin/import-local-data?replace=true", {
+    method: "POST",
+    body: JSON.stringify({ data: appData, baseVersion: serverSyncVersion })
+  });
+  serverSyncVersion = payload.summary?.version ?? serverSyncVersion;
+  await loadServerMonthlySummary();
 }
 
 function isEmployeeActiveOnDate(employee, dateText) {
@@ -1690,6 +1710,11 @@ function setServerStatus(message, type = "info") {
   elements.serverStatusBox.style.color = type === "error" ? "#9f241c" : "#144b36";
 }
 
+function setServerRecoveryButtonVisible(visible) {
+  if (!elements.serverReloadButton) return;
+  elements.serverReloadButton.classList.toggle("hidden", !visible);
+}
+
 function setAdminGateMessage(message, type = "info") {
   elements.adminGateMessage.textContent = message;
   elements.adminGateMessage.classList.remove("hidden");
@@ -1725,9 +1750,30 @@ async function serverRequest(path, options = {}) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.error || "서버 요청에 실패했습니다.");
+    const error = new Error(payload.error || "서버 요청에 실패했습니다.");
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
   }
   return payload;
+}
+
+async function loadServerSyncState() {
+  const payload = await serverRequest("/api/admin/sync-state");
+  serverSyncVersion = payload.version ?? 0;
+  return serverSyncVersion;
+}
+
+async function reloadServerLatestData() {
+  try {
+    await loadServerCalendarMonth();
+    await loadServerUsersAndEmployees();
+    await loadServerMonthlySummary();
+    setServerRecoveryButtonVisible(false);
+    setServerStatus("서버 최신본을 다시 불러왔습니다.");
+  } catch (error) {
+    setServerStatus(error.message || "서버 최신본을 다시 불러오지 못했습니다.", "error");
+  }
 }
 
 async function checkServerSession() {
@@ -1735,15 +1781,25 @@ async function checkServerSession() {
   try {
     const payload = await serverRequest("/api/auth/me");
     if (payload.user.role !== "admin") {
+      serverAutoSyncEnabled = false;
+      serverSyncVersion = null;
       window.location.href = "./user.html";
       return;
     }
+    serverAutoSyncEnabled = true;
     showAdminApp();
     setServerStatus(`${payload.user.username} 계정으로 로그인 중입니다. 권한: ${payload.user.role}`);
-    if (payload.user.role === "admin") {
-      loadServerUsersAndEmployees();
+    try {
+      await loadServerSyncState();
+      await loadServerCalendarMonth();
+      await loadServerUsersAndEmployees();
+      await loadServerMonthlySummary();
+    } catch (loadError) {
+      setServerStatus(loadError.message || "서버 데이터를 불러오지 못했습니다.", "error");
     }
   } catch (error) {
+    serverAutoSyncEnabled = false;
+    serverSyncVersion = null;
     showAdminLogin();
     setServerStatus("서버 로그인 전입니다. 서버 기능을 쓰려면 관리자 로그인이 필요합니다.", "error");
   }
@@ -1766,13 +1822,21 @@ async function loginServerAdmin(usernameOverride = "", passwordOverride = "") {
     elements.serverPasswordInput.value = "";
     elements.adminGatePasswordInput.value = "";
     if (payload.user.role !== "admin") {
+      serverAutoSyncEnabled = false;
+      serverSyncVersion = null;
       window.location.href = "./user.html";
       return;
     }
+    serverAutoSyncEnabled = true;
     showAdminApp();
     setServerStatus(`${payload.user.username} 계정으로 로그인했습니다. 권한: ${payload.user.role}`);
-    if (payload.user.role === "admin") {
-      loadServerUsersAndEmployees();
+    try {
+      await loadServerSyncState();
+      await loadServerCalendarMonth();
+      await loadServerUsersAndEmployees();
+      await loadServerMonthlySummary();
+    } catch (loadError) {
+      setServerStatus(loadError.message || "서버 데이터를 불러오지 못했습니다.", "error");
     }
   } catch (error) {
     setServerStatus(error.message, "error");
@@ -1783,6 +1847,9 @@ async function loginServerAdmin(usernameOverride = "", passwordOverride = "") {
 async function logoutServerAdmin() {
   try {
     await serverRequest("/api/auth/logout", { method: "POST", body: "{}" });
+    serverAutoSyncEnabled = false;
+    serverSyncVersion = null;
+    setServerRecoveryButtonVisible(false);
     showAdminLogin();
     setServerStatus("로그아웃했습니다.");
   } catch (error) {
@@ -1808,6 +1875,7 @@ async function importLocalBackupToServer() {
       method: "POST",
       body: JSON.stringify(localData)
     });
+    await reloadServerLatestData();
     setServerStatus(`서버 DB 가져오기 완료: 직원 ${payload.summary.employees}명, 근무기록 ${payload.summary.workRecords}건, 근태 ${payload.summary.attendanceRecords}건`);
   } catch (error) {
     setServerStatus(error.message || "서버 DB 가져오기에 실패했습니다.", "error");
@@ -1846,12 +1914,15 @@ async function loadServerMonthlySummary() {
 async function loadServerCalendarMonth() {
   try {
     const month = getMonthKey(elements.selectedDateInput.value);
-    const payload = await serverRequest(`/api/admin/calendar?month=${encodeURIComponent(month)}`);
+    const payload = await serverRequest("/api/admin/data");
     appData = normalizeData(payload.data);
+    serverSyncVersion = payload.version ?? 0;
     serverViewMode = true;
+    serverAutoSyncEnabled = true;
+    setServerRecoveryButtonVisible(false);
     renderAll();
     loadSelectedRecordIntoForm();
-    setServerStatus(`${payload.month} 서버 DB 달력을 화면에 불러왔습니다. 브라우저 LocalStorage에는 저장하지 않았습니다.`);
+    setServerStatus(`${month} 선택 월 기준으로 서버 전체 데이터를 불러왔습니다.`);
   } catch (error) {
     setServerStatus(error.message || "서버 달력을 불러오지 못했습니다.", "error");
   }
@@ -1864,7 +1935,8 @@ async function loadServerUsersAndEmployees() {
       serverRequest("/api/admin/users")
     ]);
 
-    elements.serverUserEmployeeSelect.innerHTML = `<option value="">직원 선택</option>${employeePayload.employees.map(employee => `
+    const employeesForSelect = employeePayload.employees.length ? employeePayload.employees : appData.employees;
+    elements.serverUserEmployeeSelect.innerHTML = `<option value="">직원 선택</option>${employeesForSelect.map(employee => `
       <option value="${employee.id}">${escapeHtml(employee.name)}</option>
     `).join("")}`;
     elements.serverPasswordUserSelect.innerHTML = `<option value="">계정 선택</option>${userPayload.users.map(user => `
@@ -1878,6 +1950,10 @@ async function loadServerUsersAndEmployees() {
         <td>${escapeHtml(user.employeeName || "-")}</td>
       </tr>
     `).join("");
+    if (!employeePayload.employees.length && appData.employees.length) {
+      setServerStatus("서버 직원 목록이 비어 있어 현재 화면의 직원 목록을 임시로 표시했습니다. 서버에 저장하면 목록이 다시 채워집니다.");
+      return;
+    }
     setServerStatus("서버 계정 목록을 불러왔습니다.");
   } catch (error) {
     setServerStatus(error.message || "서버 계정 목록을 불러오지 못했습니다.", "error");
@@ -1926,24 +2002,6 @@ async function changeServerUserPassword() {
     setServerStatus("비밀번호를 변경했습니다.");
   } catch (error) {
     setServerStatus(error.message || "비밀번호를 변경하지 못했습니다.", "error");
-  }
-}
-
-async function saveCurrentViewToServer() {
-  if (!window.confirm("현재 화면의 직원/근무/근태 데이터를 서버 DB에 저장할까요? 같은 직원/날짜 데이터는 갱신됩니다.")) {
-    return;
-  }
-
-  try {
-    const payload = await serverRequest("/api/admin/import-local-data?replace=true", {
-      method: "POST",
-      body: JSON.stringify(appData)
-    });
-    serverViewMode = true;
-    setServerStatus(`서버 DB 저장 완료: 직원 ${payload.summary.employees}명, 근무기록 ${payload.summary.workRecords}건, 근태 ${payload.summary.attendanceRecords}건, 삭제 ${payload.summary.deletedEmployees + payload.summary.deletedWorkRecords + payload.summary.deletedAttendanceRecords}건`);
-    await loadServerMonthlySummary();
-  } catch (error) {
-    setServerStatus(error.message || "현재 화면 데이터를 서버 DB에 저장하지 못했습니다.", "error");
   }
 }
 
@@ -2010,13 +2068,6 @@ elements.recommendButton.addEventListener("click", () => {
   renderRecommendation(recommendForDate(elements.selectedDateInput.value));
 });
 
-elements.tomorrowPreviewButton.addEventListener("click", () => {
-  elements.selectedDateInput.value = addDays(getTodayText(), 1);
-  renderAll();
-  setInputSectionVisibility("ot");
-  renderRecommendation(recommendForDate(elements.selectedDateInput.value));
-});
-
 elements.algorithmHelpButton.addEventListener("click", () => {
   elements.algorithmHelpDialog.showModal();
 });
@@ -2057,15 +2108,26 @@ elements.restoreJsonInput.addEventListener("change", event => {
   if (file) restoreJson(file);
   event.target.value = "";
 });
-elements.serverLoginButton.addEventListener("click", loginServerAdmin);
+
+elements.serverLoginButton.addEventListener("click", () => {
+  loginServerAdmin(elements.serverUsernameInput.value.trim(), elements.serverPasswordInput.value);
+});
 elements.adminGateLoginButton.addEventListener("click", () => {
   loginServerAdmin(elements.adminGateUsernameInput.value.trim(), elements.adminGatePasswordInput.value);
 });
+elements.adminGatePasswordInput.addEventListener("keydown", event => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  elements.adminGateLoginButton.click();
+});
+elements.serverPasswordInput.addEventListener("keydown", event => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  elements.serverLoginButton.click();
+});
 elements.serverLogoutButton.addEventListener("click", logoutServerAdmin);
 elements.serverImportButton.addEventListener("click", importLocalBackupToServer);
-elements.serverCalendarButton.addEventListener("click", loadServerCalendarMonth);
-elements.serverSummaryButton.addEventListener("click", loadServerMonthlySummary);
-elements.serverSaveCurrentButton.addEventListener("click", saveCurrentViewToServer);
+elements.serverReloadButton.addEventListener("click", reloadServerLatestData);
 elements.serverUsersRefreshButton.addEventListener("click", loadServerUsersAndEmployees);
 elements.serverCreateUserButton.addEventListener("click", createServerUser);
 elements.serverChangePasswordButton.addEventListener("click", changeServerUserPassword);
@@ -2147,8 +2209,8 @@ async function initialize() {
     await loadData();
     renderAll();
     loadSelectedRecordIntoForm();
-    checkServerSession();
-    showMessage("샘플 데이터가 준비되어 있습니다. 실제 직원명으로 수정해 사용하세요.");
+    await checkServerSession();
+    showMessage("서버에 로그인하면 최신 데이터가 자동으로 불러와집니다.");
   } catch (error) {
     showMessage(error.message, "error");
   }

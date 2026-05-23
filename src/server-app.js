@@ -1,7 +1,7 @@
 const { createReadStream, existsSync } = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { hashPassword, verifyPassword } = require("./database");
+const { hashPassword, verifyPassword, getSyncVersion } = require("./database");
 const { importLocalData } = require("./migration");
 
 const publicDirectory = path.join(__dirname, "..", "public");
@@ -20,7 +20,12 @@ function createApp({ database }) {
       serveStaticFile(url.pathname, response);
     } catch (error) {
       console.error(error);
-      sendJson(response, 500, { error: error.message || "서버 오류가 발생했습니다." });
+      const statusCode = Number(error.statusCode || error.status || 500);
+      const payload = { error: error.message || "서버 오류가 발생했습니다." };
+      if (error.latestVersion !== undefined) {
+        payload.latestVersion = error.latestVersion;
+      }
+      sendJson(response, statusCode, payload);
     }
   };
 }
@@ -61,6 +66,16 @@ async function handleApiRequest({ request, response, url, database }) {
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/auth/password") {
+    const session = requireSession(request, response);
+    if (!session) return;
+
+    const body = await readJsonBody(request);
+    updateOwnPassword(database, session.userId, body.currentPassword, body.newPassword);
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/auth/me") {
     const session = requireSession(request, response);
     if (!session) return;
@@ -94,11 +109,27 @@ async function handleApiRequest({ request, response, url, database }) {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/admin/data") {
+    const session = requireRole(request, response, "admin");
+    if (!session) return;
+
+    sendJson(response, 200, { data: getFullData(database), version: getSyncVersion(database) });
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/admin/users") {
     const session = requireRole(request, response, "admin");
     if (!session) return;
 
     sendJson(response, 200, { users: getUsers(database) });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/admin/sync-state") {
+    const session = requireRole(request, response, "admin");
+    if (!session) return;
+
+    sendJson(response, 200, { version: getSyncVersion(database) });
     return;
   }
 
@@ -138,7 +169,11 @@ async function handleApiRequest({ request, response, url, database }) {
 
     const body = await readJsonBody(request);
     const replace = url.searchParams.get("replace") === "true";
-    const summary = importLocalData(database, body, { replace });
+    const localData = body && typeof body === "object" && body.data ? body.data : body;
+    const summary = importLocalData(database, localData, {
+      replace,
+      expectedVersion: body && typeof body === "object" ? body.baseVersion : null
+    });
     sendJson(response, 200, { ok: true, summary });
     return;
   }
@@ -272,7 +307,41 @@ function updateUserPassword(database, userId, password) {
   }
 }
 
+function updateOwnPassword(database, userId, currentPassword, newPassword) {
+  if (!currentPassword) {
+    throw new Error("현재 비밀번호를 입력해 주세요.");
+  }
+  if (!newPassword) {
+    throw new Error("새 비밀번호를 입력해 주세요.");
+  }
+
+  const user = database.prepare("SELECT id, password_hash FROM users WHERE id = ?").get(userId);
+  if (!user) {
+    throw new Error("사용자 계정을 찾을 수 없습니다.");
+  }
+
+  if (!verifyPassword(currentPassword, user.password_hash)) {
+    throw new Error("현재 비밀번호가 올바르지 않습니다.");
+  }
+
+  database.prepare(`
+    UPDATE users
+    SET password_hash = ?,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(hashPassword(newPassword), userId);
+}
+
 function getCalendarData(database, month) {
+  const data = getFullData(database);
+  return {
+    ...data,
+    records: data.records.filter(record => record.date.startsWith(`${month}-`)),
+    attendanceRecords: data.attendanceRecords.filter(record => record.date.startsWith(`${month}-`))
+  };
+}
+
+function getFullData(database) {
   const employees = database.prepare(`
     SELECT
       id,
@@ -306,9 +375,8 @@ function getCalendarData(database, month) {
       night_xray_employee_id AS nightXrayEmployeeId,
       memo
     FROM work_records
-    WHERE date LIKE ?
     ORDER BY date ASC
-  `).all(`${month}-%`).map(record => ({
+  `).all().map(record => ({
     date: record.date,
     needsOt: Boolean(record.mriEmployeeId && record.xrayEmployeeId),
     mriEmployeeId: record.mriEmployeeId ? String(record.mriEmployeeId) : "",
@@ -333,9 +401,8 @@ function getCalendarData(database, month) {
       a.note
     FROM attendance_records a
     JOIN employees e ON e.id = a.employee_id
-    WHERE a.date LIKE ?
     ORDER BY a.date ASC, e.display_order ASC, e.id ASC
-  `).all(`${month}-%`);
+  `).all();
 
   return {
     employees,

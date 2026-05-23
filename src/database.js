@@ -16,6 +16,7 @@ function initializeDatabase(databasePath = process.env.DB_PATH || defaultDatabas
   database.exec("PRAGMA foreign_keys = ON");
   database.exec("PRAGMA journal_mode = WAL");
   createTables(database);
+  seedSyncMeta(database);
   seedInitialAdmin(database);
   return database;
 }
@@ -84,7 +85,20 @@ function createTables(database) {
     CREATE INDEX IF NOT EXISTS idx_work_records_date ON work_records(date);
     CREATE INDEX IF NOT EXISTS idx_attendance_records_date ON attendance_records(date);
     CREATE INDEX IF NOT EXISTS idx_attendance_records_employee ON attendance_records(employee_id);
+
+    CREATE TABLE IF NOT EXISTS sync_meta (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      version INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
   `);
+}
+
+function seedSyncMeta(database) {
+  database.prepare(`
+    INSERT OR IGNORE INTO sync_meta (id, version)
+    VALUES (1, 0)
+  `).run();
 }
 
 function seedInitialAdmin(database) {
@@ -114,8 +128,14 @@ function verifyPassword(password, passwordHash) {
   return crypto.timingSafeEqual(Buffer.from(actualHash, "hex"), Buffer.from(expectedHash, "hex"));
 }
 
+function getSyncVersion(database) {
+  const row = database.prepare("SELECT version FROM sync_meta WHERE id = 1").get();
+  return Number(row?.version || 0);
+}
+
 module.exports = {
   initializeDatabase,
   hashPassword,
-  verifyPassword
+  verifyPassword,
+  getSyncVersion
 };

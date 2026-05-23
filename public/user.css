@@ -69,6 +69,12 @@ input {
   padding: 1.2rem clamp(1rem, 4vw, 2rem);
 }
 
+.user-topbar-actions {
+  align-items: center;
+  display: flex;
+  gap: 0.65rem;
+}
+
 .user-topbar h1,
 .panel h2 {
   margin: 0;
@@ -108,6 +114,37 @@ input {
   padding: 1rem;
 }
 
+.collapsible-panel {
+  padding: 0;
+}
+
+.collapsible-panel[open] {
+  padding: 1rem;
+}
+
+.collapsible-summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  list-style: none;
+  padding: 1rem;
+}
+
+.collapsible-summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible-hint {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.collapsible-panel .table-wrap {
+  padding: 0 1rem 1rem;
+}
+
 .section-row {
   align-items: center;
   display: flex;
@@ -118,6 +155,13 @@ input {
 .summary-grid {
   display: grid;
   gap: 0.7rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+
+.password-grid {
+  display: grid;
+  gap: 0.8rem;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 1rem;
 }
@@ -204,7 +248,19 @@ input {
     flex-direction: column;
   }
 
+  .user-topbar-actions {
+    justify-content: stretch;
+  }
+
+  .user-topbar-actions button {
+    width: 100%;
+  }
+
   .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .password-grid {
     grid-template-columns: 1fr;
   }
 
