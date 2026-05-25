@@ -190,10 +190,19 @@ function buildCalendarLines(dateText, data, viewerEmployeeId) {
     lines.push(`OT: ${getEmployeeName(data, record.mriEmployeeId)}/${getEmployeeName(data, record.xrayEmployeeId)}`);
   }
 
-  attendanceRecords.forEach(recordItem => {
+  const saturdayOffNames = attendanceRecords
+    .filter(recordItem => recordItem.off === "토요일OFF")
+    .map(recordItem => givenName(recordItem.name));
+  if (saturdayOffNames.length) {
+    lines.push(`off: ${saturdayOffNames.join("/")}`);
+  }
+
+  attendanceRecords
+    .filter(recordItem => recordItem.off !== "토요일OFF")
+    .forEach(recordItem => {
     const isMine = String(recordItem.employeeId || "") === String(viewerEmployeeId || "");
     const details = [];
-    if (recordItem.off) details.push(recordItem.off === "토요일OFF" ? "OFF" : shortOff(recordItem.off));
+    if (recordItem.off) details.push(shortOff(recordItem.off));
     if (isMine && recordItem.otUsed < 0) details.push(`OT ${recordItem.otUsed}`);
     if (isMine && recordItem.flexOt !== 0) details.push(`탄력 ${recordItem.flexOt}`);
     if (details.length) lines.push(`${givenName(recordItem.name)} ${details.join(" ")}`);

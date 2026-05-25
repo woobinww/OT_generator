@@ -511,6 +511,21 @@ function getEligibleEmployees(dateText) {
   return getActiveEmployees(dateText).filter(employee => isEmployeeOtEligibleOnDate(employee, dateText));
 }
 
+function getAttendanceRecordForEmployee(dateText, employee) {
+  return appData.attendanceRecords.find(record => record.date === dateText && record.name === employee.name);
+}
+
+function isEmployeeExcludedFromOtRecommendation(employee, dateText) {
+  const attendanceRecord = getAttendanceRecordForEmployee(dateText, employee);
+  if (!attendanceRecord) return false;
+
+  if (["연차", "오전반차", "토요일OFF"].includes(attendanceRecord.off)) {
+    return true;
+  }
+
+  return Number(attendanceRecord.otUsed || 0) <= -8;
+}
+
 function isEmployeeRelevantForMonth(employee, monthKey) {
   const monthStart = `${monthKey}-01`;
   const monthEnd = formatLocalDate(new Date(Number(monthKey.slice(0, 4)), Number(monthKey.slice(5, 7)), 0));
@@ -642,6 +657,7 @@ function scoreCandidate(employee, role, dateText, stats, options = {}) {
 
 function getCandidates(role, dateText) {
   return getEligibleEmployees(dateText).filter(employee => {
+    if (isEmployeeExcludedFromOtRecommendation(employee, dateText)) return false;
     if (role === "mri") return canEmployeeDoMriOnDate(employee, dateText);
     return true;
   });
