@@ -260,6 +260,14 @@ function getIntegrationAttendanceRows(database, month) {
     FROM attendance_records a
     JOIN employees e ON e.id = a.employee_id
     WHERE a.date LIKE ?
+      AND NOT (
+        (a.internal_off = '토요일OFF' OR a.off = '토요일OFF')
+        AND a.ot = 0
+        AND a.night_ot = 0
+        AND a.holiday_ot = 0
+        AND a.flex_ot = 0
+        AND a.note = ''
+      )
     ORDER BY a.date ASC, e.display_order ASC, e.id ASC
   `).all(`${month}-%`).map(row => ({
     date: row.date,
