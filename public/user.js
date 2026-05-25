@@ -169,11 +169,16 @@ function renderCalendar(month, data, viewerEmployeeId) {
 
   for (let day = 1; day <= lastDate.getDate(); day += 1) {
     const dateText = `${year}-${String(monthNumber).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const lines = buildCalendarLines(dateText, data, viewerEmployeeId);
+    const dayContent = buildCalendarDayContent(dateText, data, viewerEmployeeId);
+    const hasData = dayContent.otText || dayContent.middleText || dayContent.nightText;
     cells.push(`
-      <div class="calendar-day ${lines ? "has-data" : ""}">
+      <div class="calendar-day ${hasData ? "has-data" : ""}">
         <div class="calendar-day-number">${day}</div>
-        <div class="calendar-day-lines">${escapeHtml(lines)}</div>
+        <div class="calendar-day-info">
+          <span class="${dayContent.otText ? "calendar-day-note" : "calendar-day-note-empty"}">${escapeHtml(dayContent.otText || "-")}</span>
+          <span class="${dayContent.middleText ? "calendar-day-note calendar-day-note-off" : "calendar-day-note-empty"}">${escapeHtml(dayContent.middleText || "-")}</span>
+          <span class="${dayContent.nightText ? "calendar-day-note calendar-day-note-night" : "calendar-day-note-empty calendar-day-note-night"}">${escapeHtml(dayContent.nightText || "-")}</span>
+        </div>
       </div>
     `);
   }
@@ -181,43 +186,67 @@ function renderCalendar(month, data, viewerEmployeeId) {
   elements.calendarGrid.innerHTML = cells.join("");
 }
 
-function buildCalendarLines(dateText, data, viewerEmployeeId) {
-  const lines = [];
+function buildCalendarDayContent(dateText, data, viewerEmployeeId) {
   const record = data.records.find(item => item.date === dateText);
   const attendanceRecords = data.attendanceRecords.filter(item => item.date === dateText);
-
-  if (record?.needsOt) {
-    lines.push(`OT: ${getEmployeeName(data, record.mriEmployeeId)}/${getEmployeeName(data, record.xrayEmployeeId)}`);
-  }
+  const otText = record?.needsOt
+    ? `OT: ${formatAssignmentName(data, attendanceRecords, record.mriEmployeeId, viewerEmployeeId, "otEarned")}/${formatAssignmentName(data, attendanceRecords, record.xrayEmployeeId, viewerEmployeeId, "otEarned")}`
+    : "";
+  const nightText = record?.nightMriEmployeeId || record?.nightXrayEmployeeId
+    ? `야간: ${formatAssignmentName(data, attendanceRecords, record.nightMriEmployeeId, viewerEmployeeId, "nightOt")}/${formatAssignmentName(data, attendanceRecords, record.nightXrayEmployeeId, viewerEmployeeId, "nightOt")}`
+    : "";
 
   const saturdayOffNames = attendanceRecords
     .filter(recordItem => recordItem.off === "토요일OFF")
     .map(recordItem => givenName(recordItem.name));
-  if (saturdayOffNames.length) {
-    lines.push(`off: ${saturdayOffNames.join("/")}`);
-  }
-
-  attendanceRecords
+  const attendanceLines = attendanceRecords
     .filter(recordItem => recordItem.off !== "토요일OFF")
-    .forEach(recordItem => {
-    const isMine = String(recordItem.employeeId || "") === String(viewerEmployeeId || "");
-    const details = [];
-    if (recordItem.off) details.push(shortOff(recordItem.off));
-    if (isMine && recordItem.otUsed < 0) details.push(`OT ${recordItem.otUsed}`);
-    if (isMine && recordItem.flexOt !== 0) details.push(`탄력 ${recordItem.flexOt}`);
-    if (details.length) lines.push(`${givenName(recordItem.name)} ${details.join(" ")}`);
-  });
+    .map(recordItem => buildAttendanceLine(recordItem, viewerEmployeeId, record))
+    .filter(Boolean);
 
-  if (record?.nightMriEmployeeId || record?.nightXrayEmployeeId) {
-    lines.push(`야간: ${getEmployeeName(data, record.nightMriEmployeeId)}/${getEmployeeName(data, record.nightXrayEmployeeId)}`);
+  if (saturdayOffNames.length) {
+    attendanceLines.unshift(`OFF: ${saturdayOffNames.join("/")}`);
   }
 
-  return lines.join("\n");
+  return {
+    otText,
+    middleText: attendanceLines.join("\n"),
+    nightText
+  };
+}
+
+function buildAttendanceLine(recordItem, viewerEmployeeId, workRecord) {
+  const isMine = String(recordItem.employeeId || "") === String(viewerEmployeeId || "");
+  const isAssignedToEarlyOt = Boolean(workRecord?.needsOt) &&
+    (String(workRecord.mriEmployeeId || "") === String(recordItem.employeeId || "") ||
+      String(workRecord.xrayEmployeeId || "") === String(recordItem.employeeId || ""));
+  const details = [];
+  if (recordItem.off) details.push(shortOff(recordItem.off));
+  if (recordItem.otUsed < 0) details.push(`OT ${recordItem.otUsed}`);
+  if (isMine && recordItem.otEarned > 0 && !isAssignedToEarlyOt) details.push(`OT ${recordItem.otEarned}`);
+  if (isMine && recordItem.holidayOt > 0) details.push(`휴일 ${recordItem.holidayOt}`);
+  if (recordItem.flexOt < 0) details.push(`탄력 ${recordItem.flexOt}`);
+  if (isMine && recordItem.flexOt > 0) details.push(`탄력 ${recordItem.flexOt}`);
+  const manualNote = stripAutoOtNotePrefix(recordItem.note);
+  const hasOwnPositiveOt = (recordItem.otEarned > 0 && !isAssignedToEarlyOt) || recordItem.holidayOt > 0;
+  if (isMine && hasOwnPositiveOt && manualNote) details.push(manualNote);
+  return details.length ? `${givenName(recordItem.name)} ${details.join(" ")}` : "";
 }
 
 function getEmployeeName(data, employeeId) {
   const employee = data.employees.find(item => item.id === String(employeeId));
   return employee ? givenName(employee.name) : "-";
+}
+
+function formatAssignmentName(data, attendanceRecords, employeeId, viewerEmployeeId, timeField) {
+  const employee = data.employees.find(item => item.id === String(employeeId));
+  if (!employee) return "-";
+  const name = givenName(employee.name);
+  if (String(employee.id) !== String(viewerEmployeeId || "")) return name;
+
+  const attendanceRecord = attendanceRecords.find(item => String(item.employeeId || "") === String(employee.id));
+  const timeValue = Number(attendanceRecord?.[timeField] || 0);
+  return timeValue > 0 ? `${name}(${formatValue(timeValue)})` : name;
 }
 
 function givenName(name) {
@@ -230,6 +259,23 @@ function shortOff(value) {
   if (value === "오전반차") return "전반";
   if (value === "오후반차") return "후반";
   return value;
+}
+
+function stripAutoOtNotePrefix(noteText) {
+  let remainingText = String(noteText || "");
+  const autoTokenPattern = /^(?:OT\([^)]*\)|OT사용 반차\([^)]*\)|OT사용 off\([^)]*\)|OT사용\([^)]*\)|탄력 사용\([^)]*\))/;
+
+  while (true) {
+    remainingText = remainingText.trimStart();
+    const before = remainingText;
+    remainingText = remainingText.replace(autoTokenPattern, "").trimStart();
+    if (remainingText.startsWith("+")) {
+      remainingText = remainingText.slice(1).trimStart();
+    }
+    if (remainingText === before) break;
+  }
+
+  return remainingText;
 }
 
 function formatValue(value) {
