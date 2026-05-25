@@ -133,7 +133,7 @@ async function loadSummary() {
 
   elements.summaryTitle.textContent = `${summary.name} ${payload.month} 요약`;
   elements.summaryCards.innerHTML = [
-    ["ot 합계", summary.totalOt],
+    ["OT 총 합계", summary.totalOt],
     ["OT 한 시간", summary.otEarned],
     ["OT 사용", summary.otUsed],
     ["nightOt", summary.nightOt],

@@ -225,7 +225,7 @@ function getMonthlySummary(database, month, employeeId = null) {
     SELECT
       e.id AS employeeId,
       e.name AS name,
-      COALESCE(SUM(a.ot), 0) AS totalOt,
+      COALESCE(SUM(a.ot_earned + a.holiday_ot + a.ot_used), 0) AS totalOt,
       COALESCE(SUM(a.ot_earned), 0) AS otEarned,
       COALESCE(SUM(a.ot_used), 0) AS otUsed,
       COALESCE(SUM(a.night_ot), 0) AS nightOt,
