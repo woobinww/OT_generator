@@ -523,7 +523,10 @@ function serveStaticFile(pathname, response) {
     return;
   }
 
-  response.writeHead(200, { "Content-Type": getContentType(filePath) });
+  response.writeHead(200, {
+    "Content-Type": getContentType(filePath),
+    "Cache-Control": "no-store"
+  });
   createReadStream(filePath).pipe(response);
 }
 
