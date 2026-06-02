@@ -152,9 +152,6 @@ const elements = {
   attendanceTableBody: document.querySelector("#attendanceTableBody"),
   serverStatusBox: document.querySelector("#serverStatusBox"),
   serverReloadButton: document.querySelector("#serverReloadButton"),
-  serverUsernameInput: document.querySelector("#serverUsernameInput"),
-  serverPasswordInput: document.querySelector("#serverPasswordInput"),
-  serverLoginButton: document.querySelector("#serverLoginButton"),
   serverLogoutButton: document.querySelector("#serverLogoutButton"),
   serverImportFileInput: document.querySelector("#serverImportFileInput"),
   serverImportButton: document.querySelector("#serverImportButton"),
@@ -1750,8 +1747,8 @@ function showAdminLogin() {
 
 function getAdminLoginCredentials() {
   return {
-    username: elements.adminGateUsernameInput.value.trim() || elements.serverUsernameInput.value.trim(),
-    password: elements.adminGatePasswordInput.value || elements.serverPasswordInput.value
+    username: elements.adminGateUsernameInput.value.trim(),
+    password: elements.adminGatePasswordInput.value
   };
 }
 
@@ -1835,7 +1832,6 @@ async function loginServerAdmin(usernameOverride = "", passwordOverride = "") {
       method: "POST",
       body: JSON.stringify({ username, password })
     });
-    elements.serverPasswordInput.value = "";
     elements.adminGatePasswordInput.value = "";
     if (payload.user.role !== "admin") {
       serverAutoSyncEnabled = false;
@@ -1964,6 +1960,15 @@ async function loadServerUsersAndEmployees() {
         <td>${escapeHtml(user.username)}</td>
         <td>${user.role === "admin" ? "관리자" : "일반"}</td>
         <td>${escapeHtml(user.employeeName || "-")}</td>
+        <td>
+          <div class="button-row">
+            <select data-role-user-id="${user.id}" aria-label="${escapeHtml(user.username)} 권한">
+              <option value="user" ${user.role === "user" ? "selected" : ""}>일반 유저</option>
+              <option value="admin" ${user.role === "admin" ? "selected" : ""}>관리자</option>
+            </select>
+            <button type="button" data-change-role-user-id="${user.id}">권한 저장</button>
+          </div>
+        </td>
       </tr>
     `).join("");
     if (!employeePayload.employees.length && appData.employees.length) {
@@ -2021,25 +2026,56 @@ async function changeServerUserPassword() {
   }
 }
 
+async function changeServerUserRole(userId) {
+  try {
+    const roleSelect = elements.serverUsersBody.querySelector(`[data-role-user-id="${userId}"]`);
+    const role = roleSelect?.value;
+    if (!role) {
+      setServerStatus("변경할 권한을 선택해 주세요.", "error");
+      return;
+    }
+    if (!window.confirm(`선택한 계정 권한을 ${role === "admin" ? "관리자" : "일반 유저"}로 변경할까요?`)) {
+      await loadServerUsersAndEmployees();
+      return;
+    }
+
+    await serverRequest(`/api/admin/users/${encodeURIComponent(userId)}/role`, {
+      method: "POST",
+      body: JSON.stringify({ role })
+    });
+    setServerStatus(`${role === "admin" ? "관리자" : "일반 유저"} 권한으로 변경했습니다.`);
+    await loadServerUsersAndEmployees();
+  } catch (error) {
+    setServerStatus(error.message || "권한을 변경하지 못했습니다.", "error");
+    await loadServerUsersAndEmployees();
+  }
+}
+
 elements.selectedDateInput.addEventListener("change", () => {
   renderAll();
   loadSelectedRecordIntoForm();
+  loadServerMonthlySummary();
 });
 
-elements.previousMonthButton.addEventListener("click", () => {
+function moveSelectedMonth(monthOffset) {
   const date = parseLocalDate(elements.selectedDateInput.value);
-  date.setMonth(date.getMonth() - 1);
+  const selectedDay = date.getDate();
+  date.setDate(1);
+  date.setMonth(date.getMonth() + monthOffset);
+  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  date.setDate(Math.min(selectedDay, lastDay));
   elements.selectedDateInput.value = formatLocalDate(date);
   renderAll();
   loadSelectedRecordIntoForm();
+  loadServerMonthlySummary();
+}
+
+elements.previousMonthButton.addEventListener("click", () => {
+  moveSelectedMonth(-1);
 });
 
 elements.nextMonthButton.addEventListener("click", () => {
-  const date = parseLocalDate(elements.selectedDateInput.value);
-  date.setMonth(date.getMonth() + 1);
-  elements.selectedDateInput.value = formatLocalDate(date);
-  renderAll();
-  loadSelectedRecordIntoForm();
+  moveSelectedMonth(1);
 });
 
 elements.calendarGrid.addEventListener("click", event => {
@@ -2125,9 +2161,6 @@ elements.restoreJsonInput.addEventListener("change", event => {
   event.target.value = "";
 });
 
-elements.serverLoginButton.addEventListener("click", () => {
-  loginServerAdmin(elements.serverUsernameInput.value.trim(), elements.serverPasswordInput.value);
-});
 elements.adminGateLoginButton.addEventListener("click", () => {
   loginServerAdmin(elements.adminGateUsernameInput.value.trim(), elements.adminGatePasswordInput.value);
 });
@@ -2136,17 +2169,17 @@ elements.adminGatePasswordInput.addEventListener("keydown", event => {
   event.preventDefault();
   elements.adminGateLoginButton.click();
 });
-elements.serverPasswordInput.addEventListener("keydown", event => {
-  if (event.key !== "Enter") return;
-  event.preventDefault();
-  elements.serverLoginButton.click();
-});
 elements.serverLogoutButton.addEventListener("click", logoutServerAdmin);
 elements.serverImportButton.addEventListener("click", importLocalBackupToServer);
 elements.serverReloadButton.addEventListener("click", reloadServerLatestData);
 elements.serverUsersRefreshButton.addEventListener("click", loadServerUsersAndEmployees);
 elements.serverCreateUserButton.addEventListener("click", createServerUser);
 elements.serverChangePasswordButton.addEventListener("click", changeServerUserPassword);
+elements.serverUsersBody.addEventListener("click", event => {
+  const button = event.target.closest("button[data-change-role-user-id]");
+  if (!button) return;
+  changeServerUserRole(button.dataset.changeRoleUserId);
+});
 
 elements.employeeForm.addEventListener("submit", async event => {
   event.preventDefault();

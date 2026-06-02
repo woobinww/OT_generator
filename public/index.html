@@ -274,19 +274,6 @@
           <div class="button-row server-recovery-row">
             <button id="serverReloadButton" class="hidden" type="button">서버 최신본 다시 불러오기</button>
           </div>
-          <div class="server-login-grid">
-            <label>
-              관리자 ID
-              <input id="serverUsernameInput" type="text" placeholder="admin" autocomplete="username">
-            </label>
-            <label>
-              비밀번호
-              <input id="serverPasswordInput" type="password" placeholder="비밀번호" autocomplete="current-password">
-            </label>
-            <div class="button-row server-actions">
-              <button id="serverLoginButton" class="primary" type="button">서버 로그인</button>
-            </div>
-          </div>
           <div class="server-import-box">
             <label>
               JSON 백업 파일
@@ -326,7 +313,7 @@
             <div class="section-title compact-title">
               <div>
                 <p class="eyebrow">권한 관리</p>
-                <h3>일반 유저 계정 생성</h3>
+                <h3>계정 생성 및 권한 관리</h3>
               </div>
               <button id="serverUsersRefreshButton" type="button">계정 목록 새로고침</button>
             </div>
@@ -351,7 +338,7 @@
                 <input id="serverNewPasswordInput" type="password" placeholder="초기 비밀번호">
               </label>
               <div class="button-row server-actions">
-                <button id="serverCreateUserButton" class="primary" type="button">일반 유저 생성</button>
+                <button id="serverCreateUserButton" class="primary" type="button">계정 생성</button>
               </div>
             </div>
             <div class="server-login-grid">
@@ -374,6 +361,7 @@
                     <th>ID</th>
                     <th>권한</th>
                     <th>연결 직원</th>
+                    <th>권한 변경</th>
                   </tr>
                 </thead>
                 <tbody id="serverUsersBody"></tbody>

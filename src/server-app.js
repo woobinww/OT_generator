@@ -175,6 +175,17 @@ async function handleApiRequest({ request, response, url, database }) {
     return;
   }
 
+  const roleChangeMatch = url.pathname.match(/^\/api\/admin\/users\/(\d+)\/role$/);
+  if (request.method === "POST" && roleChangeMatch) {
+    const session = requireRole(request, response, "admin");
+    if (!session) return;
+
+    const body = await readJsonBody(request);
+    updateUserRole(database, Number(roleChangeMatch[1]), body.role, session.userId);
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/admin/calendar") {
     const session = requireRole(request, response, "admin");
     if (!session) return;
@@ -364,6 +375,36 @@ function updateUserPassword(database, userId, password) {
 
   if (!result.changes) {
     throw new Error("사용자 계정을 찾을 수 없습니다.");
+  }
+}
+
+function updateUserRole(database, userId, role, currentAdminUserId) {
+  if (!["admin", "user"].includes(role)) {
+    throw new Error("변경할 권한을 올바르게 선택해 주세요.");
+  }
+
+  const user = database.prepare("SELECT id, role, employee_id FROM users WHERE id = ?").get(userId);
+  if (!user) {
+    throw new Error("사용자 계정을 찾을 수 없습니다.");
+  }
+  if (user.id === currentAdminUserId && role !== "admin") {
+    throw new Error("현재 로그인한 관리자 본인의 권한은 변경할 수 없습니다.");
+  }
+  if (role === "user" && !user.employee_id) {
+    throw new Error("일반 유저 권한을 사용하려면 먼저 직원과 연결된 계정이어야 합니다.");
+  }
+
+  database.prepare(`
+    UPDATE users
+    SET role = ?,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(role, userId);
+
+  for (const session of sessions.values()) {
+    if (session.userId === userId) {
+      session.role = role;
+    }
   }
 }
 
