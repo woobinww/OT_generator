@@ -498,7 +498,11 @@ function getFullData(database) {
       a.night_ot AS nightOt,
       a.holiday_ot AS holidayOt,
       a.flex_ot AS flexOt,
+      a.flex_earned AS flexEarned,
+      a.flex_used AS flexUsed,
+      a.flex_reason AS flexReason,
       CASE WHEN a.internal_off = '토요일OFF' THEN '토요일OFF' ELSE a.off END AS off,
+      a.manual_note AS manualNote,
       a.note
     FROM attendance_records a
     JOIN employees e ON e.id = a.employee_id

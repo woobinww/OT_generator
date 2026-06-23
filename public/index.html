@@ -189,8 +189,16 @@
                 <input id="attendanceHolidayOtInput" type="number" step="0.5" placeholder="휴일 근무">
               </label>
               <label>
-                flexOt
-                <input id="attendanceFlexOtInput" type="number" step="0.5" placeholder="예: -1, 0.5">
+                flexOt 한 시간
+                <input id="attendanceFlexEarnedInput" type="number" step="0.5" placeholder="예: 0.5">
+              </label>
+              <label>
+                flexOt 사용 시간
+                <input id="attendanceFlexUsedInput" type="number" step="0.5" placeholder="예: -1 또는 1">
+              </label>
+              <label>
+                flexOt 이유
+                <input id="attendanceFlexReasonInput" type="text" placeholder="예: 촬영 지연, 장비 점검">
               </label>
               <label>
                 off
@@ -211,15 +219,19 @@
               <p class="muted small-note">선택한 직원들은 off에 토요일OFF로 저장되고, 같은 날짜의 나머지 재직 직원은 holidayOt 4시간이 자동 입력됩니다.</p>
             </div>
             <label>
-              note
-              <input id="attendanceNoteInput" type="text" placeholder="특이사항">
-              <span class="muted small-note inline-note">OT/탄력 자동 문구는 값 변경 시 다시 정리될 수 있습니다. 추가 메모는 자동 문구 뒤에 이어서 적어 주세요.</span>
+              수동입력 note
+              <input id="attendanceManualNoteInput" type="text" placeholder="직접 적을 특이사항">
+            </label>
+            <label>
+              저장되는 최종 note
+              <input id="attendanceAutoNoteInput" type="text" placeholder="수동입력 note와 자동문구가 합쳐져 표시됩니다." readonly>
+              <span class="muted small-note inline-note">CSV/API의 note에 실제로 저장될 문구를 미리 보여줍니다.</span>
             </label>
             <div class="button-row">
               <button id="saveAttendanceButton" class="primary" type="button">근태 저장</button>
               <button id="resetAttendanceButton" type="button">근태 입력 초기화</button>
             </div>
-            <p class="muted small-note">외부 연동 CSV의 ot는 OT 한 시간과 OT 사용 시간을 합산해 저장합니다. 예: 조출 1, 사용 -4이면 ot는 -3입니다.</p>
+            <p class="muted small-note">외부 연동 CSV의 ot와 flexOt는 각각 한 시간과 사용 시간을 합산해 저장합니다. 사용 시간은 양수로 입력해도 자동으로 음수 처리됩니다.</p>
           </section>
 
           <label>

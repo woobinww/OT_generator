@@ -127,9 +127,12 @@ const elements = {
   attendanceOtUsedInput: document.querySelector("#attendanceOtUsedInput"),
   attendanceNightOtInput: document.querySelector("#attendanceNightOtInput"),
   attendanceHolidayOtInput: document.querySelector("#attendanceHolidayOtInput"),
-  attendanceFlexOtInput: document.querySelector("#attendanceFlexOtInput"),
+  attendanceFlexEarnedInput: document.querySelector("#attendanceFlexEarnedInput"),
+  attendanceFlexUsedInput: document.querySelector("#attendanceFlexUsedInput"),
+  attendanceFlexReasonInput: document.querySelector("#attendanceFlexReasonInput"),
   attendanceOffSelect: document.querySelector("#attendanceOffSelect"),
-  attendanceNoteInput: document.querySelector("#attendanceNoteInput"),
+  attendanceManualNoteInput: document.querySelector("#attendanceManualNoteInput"),
+  attendanceAutoNoteInput: document.querySelector("#attendanceAutoNoteInput"),
   saturdayOffList: document.querySelector("#saturdayOffList"),
   saveSaturdayOffButton: document.querySelector("#saveSaturdayOffButton"),
   saveAttendanceButton: document.querySelector("#saveAttendanceButton"),
@@ -330,10 +333,18 @@ function formatNumberForNote(value) {
   return Number.isInteger(value) ? String(value) : String(value);
 }
 
-function buildOtNotePrefix(otEarned, otUsed, flexOt = "") {
+function normalizeUsedValue(value) {
+  const optionalNumber = toOptionalNumber(value);
+  if (optionalNumber === "") return 0;
+  return -Math.abs(optionalNumber);
+}
+
+function buildAttendanceAutoNote(otEarned, otUsed, flexEarned = "", flexUsed = "", flexReason = "") {
   const earnedValue = toNumberOrZero(otEarned);
-  const usedValue = normalizeOtUsedValue(otUsed);
-  const flexValue = toNumberOrZero(flexOt);
+  const usedValue = normalizeUsedValue(otUsed);
+  const flexEarnedValue = toNumberOrZero(flexEarned);
+  const flexUsedValue = normalizeUsedValue(flexUsed);
+  const cleanFlexReason = String(flexReason || "").trim();
   const parts = [];
 
   if (earnedValue !== 0 && usedValue !== 0) {
@@ -351,24 +362,29 @@ function buildOtNotePrefix(otEarned, otUsed, flexOt = "") {
     }
   }
 
-  if (flexValue < 0) {
-    parts.push(`탄력 사용(${formatNumberForNote(flexValue)})`);
+  if (flexEarnedValue !== 0) {
+    parts.push(`탄력 ${cleanFlexReason}(${formatNumberForNote(flexEarnedValue)})`);
   }
 
-  return parts.length ? `${parts.join(" + ")} ` : "";
+  if (flexUsedValue !== 0) {
+    parts.push(`탄력사용(${formatNumberForNote(flexUsedValue)})`);
+  }
+
+  return parts.join(" + ");
+}
+
+function buildAttendanceFinalNote(manualNote, autoNote) {
+  return [String(manualNote || "").trim(), String(autoNote || "").trim()].filter(Boolean).join(" + ");
 }
 
 function stripAutoOtNotePrefix(noteText) {
   let remainingText = String(noteText || "");
-  const autoTokenPattern = /^(?:OT\([^)]*\)|OT사용 반차\([^)]*\)|OT사용 off\([^)]*\)|OT사용\([^)]*\)|탄력 사용\([^)]*\))/;
+  const autoTokenPattern = /(?:^|\s*\+\s*|\s+)(?:OT\([^)]*\)|OT사용 반차\([^)]*\)|OT사용 off\([^)]*\)|OT사용\([^)]*\)|탄력\s+[^()\s][^()]*\([^)]*\)|탄력사용\([^)]*\)|탄력 사용\([^)]*\))/;
 
   while (true) {
-    remainingText = remainingText.trimStart();
+    remainingText = remainingText.trim();
     const before = remainingText;
-    remainingText = remainingText.replace(autoTokenPattern, "").trimStart();
-    if (remainingText.startsWith("+")) {
-      remainingText = remainingText.slice(1).trimStart();
-    }
+    remainingText = remainingText.replace(autoTokenPattern, " ").replace(/\s*\+\s*$/, "").trim();
     if (remainingText === before) break;
   }
 
@@ -376,9 +392,14 @@ function stripAutoOtNotePrefix(noteText) {
 }
 
 function syncAttendanceNoteWithOtInputs() {
-  const prefix = buildOtNotePrefix(elements.attendanceOtInput.value, elements.attendanceOtUsedInput.value, elements.attendanceFlexOtInput.value);
-  const manualNote = stripAutoOtNotePrefix(elements.attendanceNoteInput.value);
-  elements.attendanceNoteInput.value = `${prefix}${manualNote}`;
+  const autoNote = buildAttendanceAutoNote(
+    elements.attendanceOtInput.value,
+    elements.attendanceOtUsedInput.value,
+    elements.attendanceFlexEarnedInput.value,
+    elements.attendanceFlexUsedInput.value,
+    elements.attendanceFlexReasonInput.value
+  );
+  elements.attendanceAutoNoteInput.value = buildAttendanceFinalNote(elements.attendanceManualNoteInput.value, autoNote);
 }
 
 function getOtParts(record) {
@@ -407,12 +428,41 @@ function getOtParts(record) {
   };
 }
 
+function getFlexParts(record) {
+  const legacyFlexOt = toNumberOrZero(record.flexOt);
+  const hasStoredParts = record.flexEarned !== undefined || record.flexUsed !== undefined;
+  const storedFlexEarned = toNumberOrZero(record.flexEarned);
+  const storedFlexUsed = normalizeUsedValue(record.flexUsed);
+
+  if (hasStoredParts && (storedFlexEarned !== 0 || storedFlexUsed !== 0 || legacyFlexOt === 0)) {
+    return {
+      flexEarned: storedFlexEarned,
+      flexUsed: storedFlexUsed
+    };
+  }
+
+  return {
+    flexEarned: legacyFlexOt > 0 ? legacyFlexOt : 0,
+    flexUsed: legacyFlexOt < 0 ? legacyFlexOt : 0
+  };
+}
+
 function normalizeAttendanceRecord(record) {
   const otParts = getOtParts(record);
   const otTotal = otParts.otEarned + otParts.otUsed;
-  const flexOt = toNumberOrZero(record.flexOt);
-  const notePrefix = buildOtNotePrefix(otParts.otEarned, otParts.otUsed, flexOt);
-  const manualNote = stripAutoOtNotePrefix(record.note || "");
+  const flexParts = getFlexParts(record);
+  const flexOt = flexParts.flexEarned + flexParts.flexUsed;
+  const manualNote = record.manualNote !== undefined
+    ? String(record.manualNote || "").trim()
+    : stripAutoOtNotePrefix(record.note || "");
+  const flexReason = String(record.flexReason || "").trim();
+  const autoNote = buildAttendanceAutoNote(
+    otParts.otEarned,
+    otParts.otUsed,
+    flexParts.flexEarned,
+    flexParts.flexUsed,
+    flexReason
+  );
 
   return {
     date: record.date || "",
@@ -423,8 +473,12 @@ function normalizeAttendanceRecord(record) {
     nightOt: toNumberOrZero(record.nightOt),
     holidayOt: toNumberOrZero(record.holidayOt),
     flexOt,
+    flexEarned: flexParts.flexEarned,
+    flexUsed: flexParts.flexUsed,
+    flexReason,
     off: record.off || "",
-    note: `${notePrefix}${manualNote}`
+    manualNote,
+    note: buildAttendanceFinalNote(manualNote, autoNote)
   };
 }
 
@@ -1263,9 +1317,12 @@ function resetAttendanceForm(keepName = false) {
   elements.attendanceOtUsedInput.value = "";
   elements.attendanceNightOtInput.value = "";
   elements.attendanceHolidayOtInput.value = "";
-  elements.attendanceFlexOtInput.value = "";
+  elements.attendanceFlexEarnedInput.value = "";
+  elements.attendanceFlexUsedInput.value = "";
+  elements.attendanceFlexReasonInput.value = "";
   elements.attendanceOffSelect.value = "";
-  elements.attendanceNoteInput.value = "";
+  elements.attendanceManualNoteInput.value = "";
+  elements.attendanceAutoNoteInput.value = "";
 }
 
 function setInputSectionVisibility(sectionName) {
@@ -1354,6 +1411,9 @@ function upsertAttendanceRecordByName(date, name, updates) {
   if (Object.prototype.hasOwnProperty.call(normalizedUpdates, "otUsed")) {
     normalizedUpdates.otUsed = normalizeOtUsedValue(normalizedUpdates.otUsed);
   }
+  if (Object.prototype.hasOwnProperty.call(normalizedUpdates, "flexUsed")) {
+    normalizedUpdates.flexUsed = normalizeUsedValue(normalizedUpdates.flexUsed);
+  }
   const updatedRecord = normalizeAttendanceRecord({
     ...existingRecord,
     ...normalizedUpdates,
@@ -1422,9 +1482,14 @@ function loadAttendanceRecordIntoForm(date, name) {
   elements.attendanceOtUsedInput.value = record.otUsed || "";
   elements.attendanceNightOtInput.value = record.nightOt || "";
   elements.attendanceHolidayOtInput.value = record.holidayOt || "";
-  elements.attendanceFlexOtInput.value = record.flexOt || "";
+  elements.attendanceFlexEarnedInput.value = record.flexEarned || "";
+  elements.attendanceFlexUsedInput.value = record.flexUsed || "";
+  elements.attendanceFlexReasonInput.value = record.flexReason || "";
   elements.attendanceOffSelect.value = record.off || "";
-  elements.attendanceNoteInput.value = record.note || "";
+  elements.attendanceManualNoteInput.value = record.manualNote !== undefined
+    ? record.manualNote || ""
+    : stripAutoOtNotePrefix(record.note || "");
+  syncAttendanceNoteWithOtInputs();
 }
 
 async function saveAttendanceRecord() {
@@ -1435,6 +1500,11 @@ async function saveAttendanceRecord() {
     showMessage("근태를 기록할 직원을 선택해 주세요.", "error");
     return;
   }
+  if (toNumberOrZero(elements.attendanceFlexEarnedInput.value) !== 0 && !elements.attendanceFlexReasonInput.value.trim()) {
+    showMessage("flexOt 한 시간을 입력한 경우 flexOt 이유를 반드시 입력해 주세요.", "error");
+    return;
+  }
+  syncAttendanceNoteWithOtInputs();
 
   const attendanceRecord = normalizeAttendanceRecord({
     date,
@@ -1443,9 +1513,11 @@ async function saveAttendanceRecord() {
     otUsed: normalizeOtUsedValue(elements.attendanceOtUsedInput.value),
     nightOt: elements.attendanceNightOtInput.value,
     holidayOt: elements.attendanceHolidayOtInput.value,
-    flexOt: elements.attendanceFlexOtInput.value,
+    flexEarned: elements.attendanceFlexEarnedInput.value,
+    flexUsed: normalizeUsedValue(elements.attendanceFlexUsedInput.value),
+    flexReason: elements.attendanceFlexReasonInput.value.trim(),
     off: elements.attendanceOffSelect.value,
-    note: elements.attendanceNoteInput.value.trim()
+    manualNote: elements.attendanceManualNoteInput.value.trim()
   });
 
   appData.attendanceRecords = appData.attendanceRecords.filter(record => !(record.date === date && record.name === name));
@@ -2137,7 +2209,10 @@ elements.saveSaturdayOffButton.addEventListener("click", saveSaturdayOff);
 elements.resetAttendanceButton.addEventListener("click", () => resetAttendanceForm());
 elements.attendanceOtInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
 elements.attendanceOtUsedInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
-elements.attendanceFlexOtInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
+elements.attendanceFlexEarnedInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
+elements.attendanceFlexUsedInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
+elements.attendanceFlexReasonInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
+elements.attendanceManualNoteInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
 elements.attendanceNameSelect.addEventListener("change", () => {
   loadAttendanceRecordIntoForm(elements.selectedDateInput.value, elements.attendanceNameSelect.value);
 });

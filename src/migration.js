@@ -247,6 +247,8 @@ function upsertAttendanceRecord(database, record, employeeId) {
 
   const otParts = getOtParts(record);
   const ot = otParts.otEarned + otParts.otUsed;
+  const flexParts = getFlexParts(record);
+  const flexOt = flexParts.flexEarned + flexParts.flexUsed;
   const internalOff = record.off === "토요일OFF" ? "토요일OFF" : "";
   const exportOff = record.off === "토요일OFF" ? "" : record.off || "";
 
@@ -260,11 +262,15 @@ function upsertAttendanceRecord(database, record, employeeId) {
       night_ot,
       holiday_ot,
       flex_ot,
+      flex_earned,
+      flex_used,
+      flex_reason,
       off,
       internal_off,
+      manual_note,
       note
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(date, employee_id) DO UPDATE SET
       ot = excluded.ot,
       ot_earned = excluded.ot_earned,
@@ -272,8 +278,12 @@ function upsertAttendanceRecord(database, record, employeeId) {
       night_ot = excluded.night_ot,
       holiday_ot = excluded.holiday_ot,
       flex_ot = excluded.flex_ot,
+      flex_earned = excluded.flex_earned,
+      flex_used = excluded.flex_used,
+      flex_reason = excluded.flex_reason,
       off = excluded.off,
       internal_off = excluded.internal_off,
+      manual_note = excluded.manual_note,
       note = excluded.note,
       updated_at = CURRENT_TIMESTAMP
   `).run(
@@ -284,9 +294,13 @@ function upsertAttendanceRecord(database, record, employeeId) {
     otParts.otUsed,
     toNumberOrZero(record.nightOt),
     toNumberOrZero(record.holidayOt),
-    toNumberOrZero(record.flexOt),
+    flexOt,
+    flexParts.flexEarned,
+    flexParts.flexUsed,
+    record.flexReason || "",
     exportOff,
     internalOff,
+    record.manualNote || "",
     record.note || ""
   );
 }
@@ -312,6 +326,25 @@ function normalizeOtUsedValue(value) {
   const numberValue = toNumberOrZero(value);
   if (numberValue === 0) return 0;
   return -Math.abs(numberValue);
+}
+
+function getFlexParts(record) {
+  const hasStoredParts = record.flexEarned !== undefined || record.flexUsed !== undefined;
+  const legacyFlexOt = toNumberOrZero(record.flexOt);
+  const storedFlexEarned = toNumberOrZero(record.flexEarned);
+  const storedFlexUsed = normalizeOtUsedValue(record.flexUsed);
+
+  if (hasStoredParts && (storedFlexEarned !== 0 || storedFlexUsed !== 0 || legacyFlexOt === 0)) {
+    return {
+      flexEarned: storedFlexEarned,
+      flexUsed: storedFlexUsed
+    };
+  }
+
+  return {
+    flexEarned: legacyFlexOt > 0 ? legacyFlexOt : 0,
+    flexUsed: legacyFlexOt < 0 ? legacyFlexOt : 0
+  };
 }
 
 function toNumberOrZero(value) {

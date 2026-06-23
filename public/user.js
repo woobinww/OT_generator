@@ -263,15 +263,12 @@ function shortOff(value) {
 
 function stripAutoOtNotePrefix(noteText) {
   let remainingText = String(noteText || "");
-  const autoTokenPattern = /^(?:OT\([^)]*\)|OT사용 반차\([^)]*\)|OT사용 off\([^)]*\)|OT사용\([^)]*\)|탄력 사용\([^)]*\))/;
+  const autoTokenPattern = /(?:^|\s*\+\s*|\s+)(?:OT\([^)]*\)|OT사용 반차\([^)]*\)|OT사용 off\([^)]*\)|OT사용\([^)]*\)|탄력\s+[^()\s][^()]*\([^)]*\)|탄력사용\([^)]*\)|탄력 사용\([^)]*\))/;
 
   while (true) {
-    remainingText = remainingText.trimStart();
+    remainingText = remainingText.trim();
     const before = remainingText;
-    remainingText = remainingText.replace(autoTokenPattern, "").trimStart();
-    if (remainingText.startsWith("+")) {
-      remainingText = remainingText.slice(1).trimStart();
-    }
+    remainingText = remainingText.replace(autoTokenPattern, " ").replace(/\s*\+\s*$/, "").trim();
     if (remainingText === before) break;
   }
 

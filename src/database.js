@@ -73,8 +73,12 @@ function createTables(database) {
       night_ot REAL NOT NULL DEFAULT 0,
       holiday_ot REAL NOT NULL DEFAULT 0,
       flex_ot REAL NOT NULL DEFAULT 0,
+      flex_earned REAL NOT NULL DEFAULT 0,
+      flex_used REAL NOT NULL DEFAULT 0,
+      flex_reason TEXT NOT NULL DEFAULT '',
       off TEXT NOT NULL DEFAULT '',
       internal_off TEXT NOT NULL DEFAULT '',
+      manual_note TEXT NOT NULL DEFAULT '',
       note TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -92,6 +96,25 @@ function createTables(database) {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
+  ensureAttendanceRecordColumns(database);
+}
+
+function ensureAttendanceRecordColumns(database) {
+  const existingColumns = new Set(
+    database.prepare("PRAGMA table_info(attendance_records)").all().map(column => column.name)
+  );
+  const columns = [
+    ["flex_earned", "REAL NOT NULL DEFAULT 0"],
+    ["flex_used", "REAL NOT NULL DEFAULT 0"],
+    ["flex_reason", "TEXT NOT NULL DEFAULT ''"],
+    ["manual_note", "TEXT NOT NULL DEFAULT ''"]
+  ];
+
+  columns.forEach(([name, definition]) => {
+    if (!existingColumns.has(name)) {
+      database.exec(`ALTER TABLE attendance_records ADD COLUMN ${name} ${definition}`);
+    }
+  });
 }
 
 function seedSyncMeta(database) {
