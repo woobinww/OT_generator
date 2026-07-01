@@ -249,6 +249,7 @@ function upsertAttendanceRecord(database, record, employeeId) {
   const ot = otParts.otEarned + otParts.otUsed;
   const flexParts = getFlexParts(record);
   const flexOt = flexParts.flexEarned + flexParts.flexUsed;
+  const noteParts = getNoteParts(record, otParts, flexParts);
   const internalOff = record.off === "토요일OFF" ? "토요일OFF" : "";
   const exportOff = record.off === "토요일OFF" ? "" : record.off || "";
 
@@ -268,9 +269,10 @@ function upsertAttendanceRecord(database, record, employeeId) {
       off,
       internal_off,
       manual_note,
+      auto_note,
       note
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(date, employee_id) DO UPDATE SET
       ot = excluded.ot,
       ot_earned = excluded.ot_earned,
@@ -284,6 +286,7 @@ function upsertAttendanceRecord(database, record, employeeId) {
       off = excluded.off,
       internal_off = excluded.internal_off,
       manual_note = excluded.manual_note,
+      auto_note = excluded.auto_note,
       note = excluded.note,
       updated_at = CURRENT_TIMESTAMP
   `).run(
@@ -300,8 +303,9 @@ function upsertAttendanceRecord(database, record, employeeId) {
     record.flexReason || "",
     exportOff,
     internalOff,
-    record.manualNote || "",
-    record.note || ""
+    noteParts.manualNote,
+    noteParts.autoNote,
+    noteParts.note
   );
 }
 
@@ -345,6 +349,62 @@ function getFlexParts(record) {
     flexEarned: legacyFlexOt > 0 ? legacyFlexOt : 0,
     flexUsed: legacyFlexOt < 0 ? legacyFlexOt : 0
   };
+}
+
+function getNoteParts(record, otParts, flexParts) {
+  const autoNote = buildAttendanceAutoNote(otParts, flexParts, record.flexReason || "").trim();
+  const manualNote = getManualNote(record, autoNote);
+
+  return {
+    manualNote,
+    autoNote,
+    note: [manualNote, autoNote].filter(Boolean).join(" + ")
+  };
+}
+
+function getManualNote(record, autoNote) {
+  if (record.manualNote !== undefined) {
+    return String(record.manualNote || "").trim();
+  }
+
+  const existingNote = String(record.note || "").trim();
+  if (!existingNote) return "";
+  if (!autoNote) return existingNote;
+  if (existingNote.endsWith(autoNote)) {
+    return existingNote.slice(0, -autoNote.length).replace(/\s*\+\s*$/, "").trim();
+  }
+  return existingNote;
+}
+
+function buildAttendanceAutoNote(otParts, flexParts, flexReason) {
+  const parts = [];
+
+  if (otParts.otEarned !== 0 && otParts.otUsed !== 0) {
+    parts.push(`OT(${formatNumberForNote(otParts.otEarned)})`);
+  }
+  if (otParts.otUsed !== 0) {
+    const absoluteUsedValue = Math.abs(otParts.otUsed);
+    if (absoluteUsedValue === 4) {
+      parts.push(`OT사용 반차(${formatNumberForNote(otParts.otUsed)})`);
+    } else if (absoluteUsedValue === 8) {
+      parts.push(`OT사용 off(${formatNumberForNote(otParts.otUsed)})`);
+    } else {
+      parts.push(`OT사용(${formatNumberForNote(otParts.otUsed)})`);
+    }
+  }
+  if (flexParts.flexEarned !== 0) {
+    const cleanReason = String(flexReason || "").trim();
+    parts.push(`탄력 ${cleanReason}(${formatNumberForNote(flexParts.flexEarned)})`);
+  }
+  if (flexParts.flexUsed !== 0) {
+    parts.push(`탄력사용(${formatNumberForNote(flexParts.flexUsed)})`);
+  }
+
+  return parts.join(" + ");
+}
+
+function formatNumberForNote(value) {
+  return Number.isInteger(value) ? String(value) : String(value);
 }
 
 function toNumberOrZero(value) {

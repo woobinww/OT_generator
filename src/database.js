@@ -79,6 +79,7 @@ function createTables(database) {
       off TEXT NOT NULL DEFAULT '',
       internal_off TEXT NOT NULL DEFAULT '',
       manual_note TEXT NOT NULL DEFAULT '',
+      auto_note TEXT NOT NULL DEFAULT '',
       note TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -107,7 +108,8 @@ function ensureAttendanceRecordColumns(database) {
     ["flex_earned", "REAL NOT NULL DEFAULT 0"],
     ["flex_used", "REAL NOT NULL DEFAULT 0"],
     ["flex_reason", "TEXT NOT NULL DEFAULT ''"],
-    ["manual_note", "TEXT NOT NULL DEFAULT ''"]
+    ["manual_note", "TEXT NOT NULL DEFAULT ''"],
+    ["auto_note", "TEXT NOT NULL DEFAULT ''"]
   ];
 
   columns.forEach(([name, definition]) => {

@@ -452,9 +452,6 @@ function normalizeAttendanceRecord(record) {
   const otTotal = otParts.otEarned + otParts.otUsed;
   const flexParts = getFlexParts(record);
   const flexOt = flexParts.flexEarned + flexParts.flexUsed;
-  const manualNote = record.manualNote !== undefined
-    ? String(record.manualNote || "").trim()
-    : stripAutoOtNotePrefix(record.note || "");
   const flexReason = String(record.flexReason || "").trim();
   const autoNote = buildAttendanceAutoNote(
     otParts.otEarned,
@@ -463,6 +460,9 @@ function normalizeAttendanceRecord(record) {
     flexParts.flexUsed,
     flexReason
   );
+  const manualNote = record.manualNote !== undefined && String(record.manualNote || "").trim()
+    ? String(record.manualNote || "").trim()
+    : stripAutoOtNotePrefix(record.note || "");
 
   return {
     date: record.date || "",
@@ -478,6 +478,7 @@ function normalizeAttendanceRecord(record) {
     flexReason,
     off: record.off || "",
     manualNote,
+    autoNote,
     note: buildAttendanceFinalNote(manualNote, autoNote)
   };
 }

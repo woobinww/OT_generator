@@ -277,6 +277,7 @@ function getIntegrationAttendanceRows(database, month) {
         AND a.night_ot = 0
         AND a.holiday_ot = 0
         AND a.flex_ot = 0
+        AND a.manual_note = ''
         AND a.note = ''
       )
     ORDER BY a.date ASC, e.display_order ASC, e.id ASC
@@ -503,6 +504,7 @@ function getFullData(database) {
       a.flex_reason AS flexReason,
       CASE WHEN a.internal_off = '토요일OFF' THEN '토요일OFF' ELSE a.off END AS off,
       a.manual_note AS manualNote,
+      a.auto_note AS autoNote,
       a.note
     FROM attendance_records a
     JOIN employees e ON e.id = a.employee_id
