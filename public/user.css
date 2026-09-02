@@ -253,6 +253,11 @@ input {
   align-self: end;
 }
 
+.attendance-summary-button {
+  margin-top: 1rem;
+  width: 100%;
+}
+
 .calendar-day-lines {
   color: #3f4d46;
   font-size: 0.72rem;

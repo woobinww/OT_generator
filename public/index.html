@@ -59,6 +59,7 @@
               <strong id="calendarMonthLabel">YYYY-MM</strong>
               <button id="nextMonthButton" type="button">다음 달</button>
             </div>
+            <button id="adminMyAttendanceToggleButton" class="primary hidden" type="button">내 근태 보기</button>
             <div class="calendar-weekdays">
               <span>일</span>
               <span>월</span>
@@ -91,38 +92,42 @@
             <div class="section-title compact-title">
               <div>
                 <p class="eyebrow">조기출근 OT</p>
-                <h2>조출 담당 입력</h2>
+                <h2>MRI / X-ray 담당</h2>
               </div>
               <button id="recommendButton" class="primary" type="button">선택 날짜 추천 받기</button>
             </div>
             <div class="recommendation-grid">
               <article class="recommend-card mri-card">
                 <p class="eyebrow">MRI 담당</p>
-                <h3 id="mriRecommendationName">추천 전</h3>
+                <div class="recommendation-name-row">
+                  <h3 id="mriRecommendationName">추천 전</h3>
+                  <button id="alternateMriButton" type="button">차선 추천</button>
+                </div>
                 <p id="mriRecommendationReason" class="muted">추천 버튼을 누르면 사유가 표시됩니다.</p>
-                <button id="alternateMriButton" type="button">MRI 차선 추천</button>
                 <label>
-                  수동 변경
+                  수동
                   <select id="manualMriSelect"></select>
                 </label>
                 <label>
                   조출 OT 시간
-                  <input id="manualMriOtInput" type="number" step="0.5" placeholder="입력 없으면 시간 기록 안 함">
+                  <input id="manualMriOtInput" type="number" step="0.5" placeholder="시간">
                 </label>
               </article>
 
               <article class="recommend-card xray-card">
                 <p class="eyebrow">X-ray 담당</p>
-                <h3 id="xrayRecommendationName">추천 전</h3>
+                <div class="recommendation-name-row">
+                  <h3 id="xrayRecommendationName">추천 전</h3>
+                  <button id="alternateXrayButton" type="button">차선 추천</button>
+                </div>
                 <p id="xrayRecommendationReason" class="muted">추천 버튼을 누르면 사유가 표시됩니다.</p>
-                <button id="alternateXrayButton" type="button">X-ray 차선 추천</button>
                 <label>
-                  수동 변경
+                  수동
                   <select id="manualXraySelect"></select>
                 </label>
                 <label>
                   조출 OT 시간
-                  <input id="manualXrayOtInput" type="number" step="0.5" placeholder="입력 없으면 시간 기록 안 함">
+                  <input id="manualXrayOtInput" type="number" step="0.5" placeholder="시간">
                 </label>
               </article>
             </div>
@@ -132,28 +137,28 @@
             <div class="section-title compact-title">
               <div>
                 <p class="eyebrow">화요일 / 금요일 야간근무</p>
-                <h2>야간근무 직접 입력</h2>
+                <h2>야간 MRI / X-ray 담당</h2>
               </div>
             </div>
             <div class="night-assignment-grid">
               <div class="assignment-card">
                 <label>
-                  야간 MRI 담당
+                  야간 MRI
                   <select id="nightMriSelect"></select>
                 </label>
                 <label>
                   야간 OT 시간
-                  <input id="nightMriOtInput" type="number" step="0.5" placeholder="입력 없으면 시간 기록 안 함">
+                  <input id="nightMriOtInput" type="number" step="0.5" placeholder="시간">
                 </label>
               </div>
               <div class="assignment-card">
                 <label>
-                  야간 X-ray 담당
+                  야간 X-ray
                   <select id="nightXraySelect"></select>
                 </label>
                 <label>
                   야간 OT 시간
-                  <input id="nightXrayOtInput" type="number" step="0.5" placeholder="입력 없으면 시간 기록 안 함">
+                  <input id="nightXrayOtInput" type="number" step="0.5" placeholder="시간">
                 </label>
               </div>
             </div>
@@ -167,66 +172,88 @@
                 <h2>개인 근태 입력</h2>
               </div>
             </div>
-            <div class="attendance-grid">
-              <label>
-                직원
-                <select id="attendanceNameSelect"></select>
-              </label>
-              <label>
-                OT 한 시간
-                <input id="attendanceOtInput" type="number" step="0.5" placeholder="예: 조출 1">
-              </label>
-              <label>
-                OT 사용 시간
-                <input id="attendanceOtUsedInput" type="number" step="0.5" placeholder="예: -4">
-              </label>
-              <label>
-                nightOt
-                <input id="attendanceNightOtInput" type="number" step="0.5" placeholder="야간 초과">
-              </label>
-              <label>
-                holidayOt
-                <input id="attendanceHolidayOtInput" type="number" step="0.5" placeholder="휴일 근무">
-              </label>
-              <label>
-                flexOt 한 시간
-                <input id="attendanceFlexEarnedInput" type="number" step="0.5" placeholder="예: 0.5">
-              </label>
-              <label>
-                flexOt 사용 시간
-                <input id="attendanceFlexUsedInput" type="number" step="0.5" placeholder="예: -1 또는 1">
-              </label>
-              <label>
-                flexOt 이유
-                <input id="attendanceFlexReasonInput" type="text" placeholder="예: 촬영 지연, 장비 점검">
-              </label>
-              <label>
-                off
-                <select id="attendanceOffSelect">
-                  <option value="">없음</option>
-                  <option value="연차">연차</option>
-                  <option value="오전반차">오전반차</option>
-                  <option value="오후반차">오후반차</option>
-                </select>
-              </label>
+            <div class="attendance-employee-field">
+              <span>직원</span>
+              <select id="attendanceNameSelect"></select>
             </div>
-            <div class="saturday-off-box">
-              <div>
-                <p class="form-label-text">토요일 OFF 직원</p>
-                <div id="saturdayOffList" class="saturday-off-list"></div>
+
+            <div class="attendance-groups-row">
+              <fieldset class="attendance-group">
+                <legend>OT 기록</legend>
+                <div class="attendance-grid">
+                  <label>
+                    OT 한 시간
+                  <input id="attendanceOtInput" type="number" step="0.5" placeholder="조출 1">
+                  </label>
+                  <label>
+                    OT 사용 시간
+                  <input id="attendanceOtUsedInput" type="number" step="0.5" placeholder="-4">
+                  </label>
+                  <label>
+                    야간 OT
+                    <input id="attendanceNightOtInput" type="number" step="0.5" placeholder="야간 초과">
+                  </label>
+                  <label>
+                    휴일 OT
+                    <input id="attendanceHolidayOtInput" type="number" step="0.5" placeholder="휴일 근무">
+                  </label>
+                </div>
+              </fieldset>
+
+              <fieldset class="attendance-group">
+                <legend>탄력근무</legend>
+                <div class="attendance-grid">
+                  <label>
+                    탄력 한 시간
+                  <input id="attendanceFlexEarnedInput" type="number" step="0.5" placeholder="0.5">
+                  </label>
+                  <label>
+                    탄력 사유
+                  <input id="attendanceFlexReasonInput" type="text" placeholder="촬영 지연 등">
+                  </label>
+                  <label>
+                    탄력 사용 시간
+                  <input id="attendanceFlexUsedInput" type="number" step="0.5" placeholder="-1 또는 1">
+                  </label>
+                </div>
+              </fieldset>
+            </div>
+
+            <fieldset class="attendance-group">
+              <legend>휴무 / OFF</legend>
+              <div class="attendance-grid attendance-off-grid">
+                <label class="attendance-inline-field">
+                  <span>휴무</span>
+                  <select id="attendanceOffSelect">
+                    <option value="">없음</option>
+                    <option value="연차">연차</option>
+                    <option value="오전반차">오전반차</option>
+                    <option value="오후반차">오후반차</option>
+                  </select>
+                </label>
               </div>
-              <button id="saveSaturdayOffButton" type="button">토요일 OFF 저장</button>
-              <p class="muted small-note">선택한 직원들은 off에 토요일OFF로 저장되고, 같은 날짜의 나머지 재직 직원은 holidayOt 4시간이 자동 입력됩니다.</p>
-            </div>
-            <label>
-              수동입력 note
-              <input id="attendanceManualNoteInput" type="text" placeholder="직접 적을 특이사항">
-            </label>
-            <label>
-              저장되는 최종 note
-              <input id="attendanceAutoNoteInput" type="text" placeholder="수동입력 note와 자동문구가 합쳐져 표시됩니다." readonly>
-              <span class="muted small-note inline-note">CSV/API의 note에 실제로 저장될 문구를 미리 보여줍니다.</span>
-            </label>
+              <div class="saturday-off-box">
+                <div>
+                  <p class="form-label-text">토요일 OFF 직원</p>
+                  <div id="saturdayOffList" class="saturday-off-list"></div>
+                </div>
+                <button id="saveSaturdayOffButton" type="button">토요일 OFF 저장</button>
+                <p class="muted small-note">선택한 직원들은 off에 토요일OFF로 저장되고, 같은 날짜의 나머지 재직 직원은 holidayOt 4시간이 자동 입력됩니다.</p>
+              </div>
+            </fieldset>
+
+            <fieldset class="attendance-group">
+              <legend>메모</legend>
+              <label>
+                수동입력 note
+                <input id="attendanceManualNoteInput" type="text" placeholder="직접 적을 특이사항">
+              </label>
+              <label>
+                저장되는 최종 note
+                <input id="attendanceAutoNoteInput" type="text" placeholder="수동입력 note와 자동문구가 합쳐져 표시됩니다." readonly>
+                <span class="muted small-note inline-note">CSV/API의 note에 실제로 저장될 문구를 미리 보여줍니다.</span>
+              </label>
+            </fieldset>
             <div class="button-row">
               <button id="saveAttendanceButton" class="primary" type="button">근태 저장</button>
               <button id="resetAttendanceButton" type="button">근태 입력 초기화</button>
@@ -236,7 +263,7 @@
 
           <label>
             메모
-            <textarea id="recordMemoInput" rows="3" placeholder="예: post-op MRI 1건, X-ray 2건"></textarea>
+            <textarea id="recordMemoInput" rows="3" placeholder="post-op MRI 1건, X-ray 2건"></textarea>
           </label>
 
           <div id="warningBox" class="warning-box hidden"></div>
@@ -275,26 +302,32 @@
           </div>
         </details>
 
-        <section class="panel server-admin-panel">
-          <div class="section-title">
+        <details class="panel collapsible-panel server-admin-panel">
+          <summary class="section-title collapsible-summary">
             <div>
               <p class="eyebrow">서버 전환</p>
               <h2>서버 관리자 도구</h2>
             </div>
-          </div>
-          <div id="serverStatusBox" class="message server-status">서버 상태를 확인 중입니다.</div>
-          <div class="button-row server-recovery-row">
-            <button id="serverReloadButton" class="hidden" type="button">서버 최신본 다시 불러오기</button>
-          </div>
-          <div class="server-import-box">
-            <label>
-              JSON 백업 파일
-              <input id="serverImportFileInput" type="file" accept="application/json,.json">
-            </label>
-            <button id="serverImportButton" type="button">서버 DB로 가져오기</button>
-            <p class="muted small-note">기존 `JSON 백업` 파일을 선택하면 직원, 조출/야간, 근태 기록을 SQLite DB로 옮깁니다. 관리자 로그인 후 사용할 수 있습니다.</p>
-          </div>
-          <div class="server-summary-box">
+            <span class="collapsible-hint">열기 / 닫기</span>
+          </summary>
+          <details class="server-tool-section" data-server-tool-section>
+            <summary class="server-tool-summary">데이터 가져오기·동기화</summary>
+            <div id="serverStatusBox" class="message server-status">서버 상태를 확인 중입니다.</div>
+            <div class="button-row server-recovery-row">
+              <button id="serverReloadButton" class="hidden" type="button">서버 최신본 다시 불러오기</button>
+            </div>
+            <div class="server-import-box">
+              <label>
+                JSON 백업 파일
+                <input id="serverImportFileInput" type="file" accept="application/json,.json">
+              </label>
+              <button id="serverImportButton" type="button">서버 DB로 가져오기</button>
+              <p class="muted small-note">기존 `JSON 백업` 파일을 선택하면 직원, 조출/야간, 근태 기록을 SQLite DB로 옮깁니다. 관리자 로그인 후 사용할 수 있습니다.</p>
+            </div>
+          </details>
+          <details class="server-tool-section" data-server-tool-section>
+            <summary class="server-tool-summary">서버 월간 요약</summary>
+            <div class="server-summary-box">
             <div class="section-title compact-title">
               <div>
                 <p class="eyebrow">서버 월간 요약</p>
@@ -320,8 +353,11 @@
                 <tbody id="serverSummaryBody"></tbody>
               </table>
             </div>
-          </div>
-          <div class="server-summary-box">
+            </div>
+          </details>
+          <details class="server-tool-section" data-server-tool-section>
+            <summary class="server-tool-summary">계정 생성·권한 관리</summary>
+            <div class="server-summary-box">
             <div class="section-title compact-title">
               <div>
                 <p class="eyebrow">권한 관리</p>
@@ -329,41 +365,51 @@
               </div>
               <button id="serverUsersRefreshButton" type="button">계정 목록 새로고침</button>
             </div>
-            <div class="server-login-grid">
-              <label>
-                직원
-                <select id="serverUserEmployeeSelect"></select>
-              </label>
-              <label>
-                권한
-                <select id="serverNewUserRoleSelect">
-                  <option value="user">일반 유저</option>
-                  <option value="admin">관리자</option>
-                </select>
-              </label>
-              <label>
-                사용자 ID
-                <input id="serverNewUsernameInput" type="text" placeholder="예: woobin">
-              </label>
-              <label>
-                비밀번호
-                <input id="serverNewPasswordInput" type="password" placeholder="초기 비밀번호">
-              </label>
+            <div class="server-account-actions">
+              <button id="serverCreateUserToggleButton" class="primary" type="button">계정 생성</button>
+              <button id="serverChangePasswordToggleButton" type="button">비밀번호 변경</button>
+            </div>
+            <div id="serverCreateUserForm" class="server-account-form hidden">
+              <div class="server-login-grid">
+                <label>
+                  직원
+                  <select id="serverUserEmployeeSelect"></select>
+                </label>
+                <label>
+                  권한
+                  <select id="serverNewUserRoleSelect">
+                    <option value="user">일반 유저</option>
+                    <option value="admin">관리자</option>
+                  </select>
+                </label>
+                <label>
+                  사용자 ID
+                  <input id="serverNewUsernameInput" type="text" placeholder="woobin">
+                </label>
+                <label>
+                  비밀번호
+                  <input id="serverNewPasswordInput" type="password" placeholder="초기 비밀번호">
+                </label>
+              </div>
               <div class="button-row server-actions">
                 <button id="serverCreateUserButton" class="primary" type="button">계정 생성</button>
+                <button id="serverCreateUserCancelButton" type="button">취소</button>
               </div>
             </div>
-            <div class="server-login-grid">
-              <label>
-                비밀번호 변경 계정
-                <select id="serverPasswordUserSelect"></select>
-              </label>
-              <label>
-                새 비밀번호
-                <input id="serverChangePasswordInput" type="password" placeholder="새 비밀번호">
-              </label>
+            <div id="serverChangePasswordForm" class="server-account-form hidden">
+              <div class="server-login-grid">
+                <label>
+                  비밀번호 변경 계정
+                  <select id="serverPasswordUserSelect"></select>
+                </label>
+                <label>
+                  새 비밀번호
+                  <input id="serverChangePasswordInput" type="password" placeholder="새 비밀번호">
+                </label>
+              </div>
               <div class="button-row server-actions">
                 <button id="serverChangePasswordButton" type="button">비밀번호 변경</button>
+                <button id="serverChangePasswordCancelButton" type="button">취소</button>
               </div>
             </div>
             <div class="table-wrap">
@@ -379,8 +425,9 @@
                 <tbody id="serverUsersBody"></tbody>
               </table>
             </div>
-          </div>
-        </section>
+            </div>
+          </details>
+        </details>
       </div>
 
       <div class="layout-column layout-column-right">
@@ -436,15 +483,18 @@
           </div>
         </section>
 
-        <section class="panel">
-          <div class="section-title">
+        <details class="panel collapsible-panel">
+          <summary class="section-title collapsible-summary">
             <div>
               <p class="eyebrow">직원 관리</p>
               <h2>직원 등록/수정</h2>
             </div>
-          </div>
+            <span class="collapsible-hint">열기 / 닫기</span>
+          </summary>
 
-          <form id="employeeForm" class="employee-form">
+          <button id="showEmployeeFormButton" class="primary employee-register-button" type="button">직원 등록</button>
+
+          <form id="employeeForm" class="employee-form hidden">
             <input id="employeeIdInput" type="hidden">
             <label>
               이름
@@ -481,7 +531,7 @@
             </div>
             <div class="button-row employee-actions">
               <button type="submit" class="primary">직원 저장</button>
-              <button id="cancelEmployeeEditButton" type="button">수정 취소</button>
+              <button id="cancelEmployeeEditButton" type="button">취소</button>
             </div>
           </form>
 
@@ -501,7 +551,7 @@
               <tbody id="employeeTableBody"></tbody>
             </table>
           </div>
-        </section>
+        </details>
       </div>
     </main>
 

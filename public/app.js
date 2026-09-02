@@ -75,6 +75,8 @@ let serverViewMode = false;
 let serverAutoSyncEnabled = false;
 let serverAutoSyncTimer = null;
 let serverSyncVersion = null;
+let adminEmployeeId = "";
+let adminOnlyMyAttendance = false;
 
 const elements = {
   adminLoginScreen: document.querySelector("#adminLoginScreen"),
@@ -89,6 +91,7 @@ const elements = {
   previousMonthButton: document.querySelector("#previousMonthButton"),
   nextMonthButton: document.querySelector("#nextMonthButton"),
   calendarMonthLabel: document.querySelector("#calendarMonthLabel"),
+  adminMyAttendanceToggleButton: document.querySelector("#adminMyAttendanceToggleButton"),
   calendarGrid: document.querySelector("#calendarGrid"),
   showOtInputButton: document.querySelector("#showOtInputButton"),
   showNightInputButton: document.querySelector("#showNightInputButton"),
@@ -133,6 +136,7 @@ const elements = {
   attendanceOffSelect: document.querySelector("#attendanceOffSelect"),
   attendanceManualNoteInput: document.querySelector("#attendanceManualNoteInput"),
   attendanceAutoNoteInput: document.querySelector("#attendanceAutoNoteInput"),
+  saturdayOffBox: document.querySelector(".saturday-off-box"),
   saturdayOffList: document.querySelector("#saturdayOffList"),
   saveSaturdayOffButton: document.querySelector("#saveSaturdayOffButton"),
   saveAttendanceButton: document.querySelector("#saveAttendanceButton"),
@@ -149,6 +153,7 @@ const elements = {
   employeeMriStartDateInput: document.querySelector("#employeeMriStartDateInput"),
   employeeOtStartDateInput: document.querySelector("#employeeOtStartDateInput"),
   employeeNightStartDateInput: document.querySelector("#employeeNightStartDateInput"),
+  showEmployeeFormButton: document.querySelector("#showEmployeeFormButton"),
   cancelEmployeeEditButton: document.querySelector("#cancelEmployeeEditButton"),
   employeeTableBody: document.querySelector("#employeeTableBody"),
   recordTableBody: document.querySelector("#recordTableBody"),
@@ -164,9 +169,15 @@ const elements = {
   serverNewUserRoleSelect: document.querySelector("#serverNewUserRoleSelect"),
   serverNewUsernameInput: document.querySelector("#serverNewUsernameInput"),
   serverNewPasswordInput: document.querySelector("#serverNewPasswordInput"),
+  serverCreateUserToggleButton: document.querySelector("#serverCreateUserToggleButton"),
+  serverCreateUserForm: document.querySelector("#serverCreateUserForm"),
+  serverCreateUserCancelButton: document.querySelector("#serverCreateUserCancelButton"),
   serverCreateUserButton: document.querySelector("#serverCreateUserButton"),
   serverPasswordUserSelect: document.querySelector("#serverPasswordUserSelect"),
   serverChangePasswordInput: document.querySelector("#serverChangePasswordInput"),
+  serverChangePasswordToggleButton: document.querySelector("#serverChangePasswordToggleButton"),
+  serverChangePasswordForm: document.querySelector("#serverChangePasswordForm"),
+  serverChangePasswordCancelButton: document.querySelector("#serverChangePasswordCancelButton"),
   serverChangePasswordButton: document.querySelector("#serverChangePasswordButton"),
   serverUsersBody: document.querySelector("#serverUsersBody")
 };
@@ -876,10 +887,10 @@ function recommendAlternate(role) {
     elements.xrayRecommendationReason.textContent = `차선 추천 사유: ${selected.reasons.join(", ")}`;
   }
 
-  const swapped = enforceSeniorMriAssignment({ updateReason: true });
   setWarnings(warnings);
   renderFairness();
-  showMessage(swapped ? "차선 추천 후 선임 순서 기준으로 MRI/X-ray 역할을 조정했습니다." : `${role === "mri" ? "MRI" : "X-ray"} 차선 담당자를 추천했습니다.`);
+  refreshOtRoleOptions();
+  showMessage(`${role === "mri" ? "MRI" : "X-ray"} 차선 담당자를 추천했습니다.`);
 }
 
 function calculateFairness(monthKey, extraRecords = []) {
@@ -934,6 +945,7 @@ function renderRecommendation(result) {
   elements.manualMriSelect.value = result.mri.employee.id;
   elements.manualXraySelect.value = result.xray.employee.id;
   const swapped = enforceSeniorMriAssignment({ updateReason: true });
+  refreshOtRoleOptions();
   setWarnings(result.warnings);
   renderFairness();
   showMessage(swapped ? `${result.date} 추천이 완료되었습니다. 선임 순서 기준으로 MRI/X-ray 역할을 조정했습니다.` : `${result.date} 추천이 완료되었습니다.`);
@@ -960,6 +972,7 @@ function renderEmployeeOptions() {
     .join("");
   elements.manualMriSelect.innerHTML = `<option value="">선택 없음</option>${otMriOptionHtml}`;
   elements.manualXraySelect.innerHTML = `<option value="">선택 없음</option>${otOptionHtml}`;
+  refreshOtRoleOptions();
   elements.nightMriSelect.innerHTML = `<option value="">선택 없음</option>${nightMriOptionHtml}`;
   elements.nightXraySelect.innerHTML = `<option value="">선택 없음</option>${nightOptionHtml}`;
   elements.attendanceNameSelect.innerHTML = `<option value="">직원 선택</option>${activeEmployees
@@ -974,6 +987,24 @@ function renderEmployeeOptions() {
       </label>
     `).join("")
     : `<p class="muted small-note">해당 날짜 기준 재직 직원이 없습니다.</p>`;
+  updateSaturdayOffButtonState();
+}
+
+function updateSaturdayOffButtonState() {
+  const hasSelectedEmployee = Boolean(elements.attendanceNameSelect.value);
+  elements.saturdayOffBox.classList.toggle("hidden", hasSelectedEmployee);
+}
+
+function refreshOtRoleOptions() {
+  const mriEmployeeId = elements.manualMriSelect.value;
+  const xrayEmployeeId = elements.manualXraySelect.value;
+
+  Array.from(elements.manualMriSelect.options).forEach(option => {
+    option.disabled = Boolean(xrayEmployeeId && option.value === xrayEmployeeId);
+  });
+  Array.from(elements.manualXraySelect.options).forEach(option => {
+    option.disabled = Boolean(mriEmployeeId && option.value === mriEmployeeId);
+  });
 }
 
 function renderEmployees() {
@@ -986,8 +1017,8 @@ function renderEmployees() {
       <td>${escapeHtml(employee.otStartDate || "-")}</td>
       <td>${escapeHtml(employee.nightStartDate || "-")}</td>
       <td>
-        <button class="small-button" data-action="move-employee-up" data-id="${employee.id}">위</button>
-        <button class="small-button" data-action="move-employee-down" data-id="${employee.id}">아래</button>
+        <button class="small-button employee-move-button" data-action="move-employee-up" data-id="${employee.id}" aria-label="${escapeHtml(employee.name)} 위로 이동" title="위로 이동">↑</button>
+        <button class="small-button employee-move-button" data-action="move-employee-down" data-id="${employee.id}" aria-label="${escapeHtml(employee.name)} 아래로 이동" title="아래로 이동">↓</button>
         <button class="small-button" data-action="edit-employee" data-id="${employee.id}">수정</button>
         <button class="small-button" data-action="delete-employee" data-id="${employee.id}">삭제</button>
       </td>
@@ -1045,8 +1076,11 @@ function getSaturdayOffRecords(dateText) {
   return appData.attendanceRecords.filter(record => record.date === dateText && record.off === "토요일OFF");
 }
 
-function buildCalendarMiddleText(dateText) {
-  const dateAttendanceRecords = appData.attendanceRecords.filter(record => record.date === dateText);
+function buildCalendarMiddleText(dateText, employeeId = "") {
+  const employeeName = employeeId ? getEmployeeName(employeeId) : "";
+  const dateAttendanceRecords = appData.attendanceRecords
+    .filter(record => record.date === dateText)
+    .filter(record => !employeeId || record.name === employeeName);
   const saturdayOffNames = dateAttendanceRecords
     .filter(record => record.off === "토요일OFF")
     .map(record => getGivenNameOnlyByName(record.name));
@@ -1058,7 +1092,7 @@ function buildCalendarMiddleText(dateText) {
       if (record.off) details.push(getShortOffLabel(record.off));
       if (record.otUsed < 0) details.push(`OT ${record.otUsed}`);
       if (record.flexOt < 0) details.push(`탄력 ${record.flexOt}`);
-      return details.length ? `${name} ${details.join(" ")}` : "";
+      return details.length ? (employeeId ? details.join(" ") : `${name} ${details.join(" ")}`) : "";
     })
     .filter(Boolean);
 
@@ -1073,26 +1107,32 @@ function formatTimeSuffix(value) {
   return value ? `(${formatNumberForNote(value)})` : "";
 }
 
-function buildCalendarTooltipText(dateText, record, middleText, missingWorkTime) {
+function buildCalendarTooltipText(dateText, record, middleText, missingWorkTime, employeeId = "") {
   const lines = [];
+  const ownAssignment = employeeId ? getOwnAssignmentIds(record, employeeId) : null;
 
-  if (record?.needsOt) {
+  if (record?.needsOt && (!employeeId || ownAssignment.ot.length)) {
     const mriAttendance = getAttendanceRecord(record.date, getEmployeeName(record.mriEmployeeId));
     const xrayAttendance = getAttendanceRecord(record.date, getEmployeeName(record.xrayEmployeeId));
-    lines.push(`OT: ${getGivenNameOnly(record.mriEmployeeId)}${formatTimeSuffix(mriAttendance?.otEarned)}/${getGivenNameOnly(record.xrayEmployeeId)}${formatTimeSuffix(xrayAttendance?.otEarned)}`);
+    lines.push(employeeId
+      ? `OT: ${ownAssignment.ot.map(assignmentId => formatOwnCalendarAssignment(dateText, assignmentId, "otEarned")).join("/")}`
+      : `OT: ${getGivenNameOnly(record.mriEmployeeId)}${formatTimeSuffix(mriAttendance?.otEarned)}/${getGivenNameOnly(record.xrayEmployeeId)}${formatTimeSuffix(xrayAttendance?.otEarned)}`);
   }
 
   const attendanceLines = appData.attendanceRecords
     .filter(attendanceRecord => attendanceRecord.date === dateText)
-    .map(attendanceRecord => buildAttendanceTooltipLine(attendanceRecord))
+    .filter(attendanceRecord => !employeeId || attendanceRecord.name === getEmployeeName(employeeId))
+    .map(attendanceRecord => buildAttendanceTooltipLine(attendanceRecord, Boolean(employeeId)))
     .filter(Boolean);
 
   lines.push(...attendanceLines);
 
-  if (record?.nightMriEmployeeId || record?.nightXrayEmployeeId) {
+  if ((record?.nightMriEmployeeId || record?.nightXrayEmployeeId) && (!employeeId || ownAssignment.night.length)) {
     const nightMriAttendance = getAttendanceRecord(record.date, getEmployeeName(record.nightMriEmployeeId));
     const nightXrayAttendance = getAttendanceRecord(record.date, getEmployeeName(record.nightXrayEmployeeId));
-    lines.push(`야간: ${getGivenNameOnly(record.nightMriEmployeeId)}${formatTimeSuffix(nightMriAttendance?.nightOt)}/${getGivenNameOnly(record.nightXrayEmployeeId)}${formatTimeSuffix(nightXrayAttendance?.nightOt)}`);
+    lines.push(employeeId
+      ? `야간: ${ownAssignment.night.map(assignmentId => formatOwnCalendarAssignment(dateText, assignmentId, "nightOt")).join("/")}`
+      : `야간: ${getGivenNameOnly(record.nightMriEmployeeId)}${formatTimeSuffix(nightMriAttendance?.nightOt)}/${getGivenNameOnly(record.nightXrayEmployeeId)}${formatTimeSuffix(nightXrayAttendance?.nightOt)}`);
   }
 
   if (!lines.length && middleText) {
@@ -1106,7 +1146,7 @@ function buildCalendarTooltipText(dateText, record, middleText, missingWorkTime)
   return lines.join("\n");
 }
 
-function buildAttendanceTooltipLine(record) {
+function buildAttendanceTooltipLine(record, mineOnly = false) {
   const name = getGivenNameOnlyByName(record.name);
   const details = [];
 
@@ -1122,11 +1162,22 @@ function buildAttendanceTooltipLine(record) {
   const manualNote = stripAutoOtNotePrefix(record.note);
   if (manualNote) details.push(manualNote);
 
-  return details.length ? `${name} ${details.join(" ")}` : "";
+  return details.length ? (mineOnly ? details.join(" ") : `${name} ${details.join(" ")}`) : "";
 }
 
-function hasMissingWorkTime(record) {
+function hasMissingWorkTime(record, employeeId = "") {
   if (!record) return false;
+
+  if (employeeId) {
+    const ownAssignment = getOwnAssignmentIds(record, employeeId);
+    if (record.needsOt && ownAssignment.ot.length) {
+      return ownAssignment.ot.some(assignmentId => !getAttendanceRecord(record.date, getEmployeeName(assignmentId))?.otEarned);
+    }
+    if (ownAssignment.night.length) {
+      return ownAssignment.night.some(assignmentId => !getAttendanceRecord(record.date, getEmployeeName(assignmentId))?.nightOt);
+    }
+    return false;
+  }
 
   if (record.needsOt) {
     const mriAttendance = getAttendanceRecord(record.date, getEmployeeName(record.mriEmployeeId));
@@ -1141,6 +1192,29 @@ function hasMissingWorkTime(record) {
   }
 
   return false;
+}
+
+function getOwnAssignmentIds(record, employeeId) {
+  if (!record || !employeeId) return { ot: [], night: [] };
+  const id = String(employeeId);
+  return {
+    ot: [record.mriEmployeeId, record.xrayEmployeeId].filter(value => String(value || "") === id),
+    night: [record.nightMriEmployeeId, record.nightXrayEmployeeId].filter(value => String(value || "") === id)
+  };
+}
+
+function formatOwnCalendarAssignment(dateText, employeeId, fieldName) {
+  const attendance = getAttendanceRecord(dateText, getEmployeeName(employeeId));
+  const value = Number(attendance?.[fieldName] || 0);
+  return value > 0 ? formatNumberForNote(value) : "있음";
+}
+
+function hasCalendarDataForEmployee(dateText, record, employeeId) {
+  if (!employeeId) return false;
+  const ownAssignment = getOwnAssignmentIds(record, employeeId);
+  const ownName = getEmployeeName(employeeId);
+  return ownAssignment.ot.length > 0 || ownAssignment.night.length > 0 ||
+    appData.attendanceRecords.some(item => item.date === dateText && item.name === ownName);
 }
 
 function getShortOffLabel(offText) {
@@ -1181,10 +1255,7 @@ function renderCalendar() {
   const lastDate = new Date(year, month, 0);
   const firstWeekday = firstDate.getDay();
   const todayText = getTodayText();
-  const recordDates = new Set([
-    ...appData.records.map(record => record.date),
-    ...appData.attendanceRecords.map(record => record.date)
-  ]);
+  const recordDates = new Set();
 
   elements.calendarMonthLabel.textContent = `${year}년 ${month}월`;
   elements.selectedDateDisplay.value = formatKoreanDate(selectedDate);
@@ -1200,21 +1271,34 @@ function renderCalendar() {
     const classes = ["calendar-day"];
     if (dateText === selectedDate) classes.push("is-selected");
     if (dateText === todayText) classes.push("is-today");
-    if (recordDates.has(dateText)) classes.push("has-record");
     if (weekday === 0) classes.push("is-sunday");
     if (weekday === 6) classes.push("is-saturday");
 
     const record = appData.records.find(item => item.date === dateText);
-    const missingWorkTime = hasMissingWorkTime(record);
+    const missingWorkTime = hasMissingWorkTime(record, adminOnlyMyAttendance ? adminEmployeeId : "");
     if (missingWorkTime) classes.push("needs-time-input");
-    const otText = record?.needsOt
-      ? `OT: ${getGivenNameOnly(record.mriEmployeeId)}/${getGivenNameOnly(record.xrayEmployeeId)}`
+    const ownAssignment = adminOnlyMyAttendance ? getOwnAssignmentIds(record, adminEmployeeId) : null;
+    const hasOwnData = hasCalendarDataForEmployee(dateText, record, adminEmployeeId);
+    const hasVisibleData = adminOnlyMyAttendance
+      ? hasOwnData
+      : Boolean(record || appData.attendanceRecords.some(item => item.date === dateText));
+    if (hasVisibleData) {
+      recordDates.add(dateText);
+    }
+    if (recordDates.has(dateText)) classes.push("has-record");
+    const otText = record?.needsOt && (!adminOnlyMyAttendance || ownAssignment.ot.length)
+      ? adminOnlyMyAttendance
+        ? `OT: ${ownAssignment.ot.map(employeeId => formatOwnCalendarAssignment(dateText, employeeId, "otEarned")).join("/")}`
+        : `OT: ${getGivenNameOnly(record.mriEmployeeId)}/${getGivenNameOnly(record.xrayEmployeeId)}`
       : "";
-    const nightText = record?.nightMriEmployeeId || record?.nightXrayEmployeeId
-      ? `야간: ${getGivenNameOnly(record.nightMriEmployeeId)}/${getGivenNameOnly(record.nightXrayEmployeeId)}`
+    const nightText = (record?.nightMriEmployeeId || record?.nightXrayEmployeeId) &&
+      (!adminOnlyMyAttendance || ownAssignment.night.length)
+      ? adminOnlyMyAttendance
+        ? `야간: ${ownAssignment.night.map(employeeId => formatOwnCalendarAssignment(dateText, employeeId, "nightOt")).join("/")}`
+        : `야간: ${getGivenNameOnly(record.nightMriEmployeeId)}/${getGivenNameOnly(record.nightXrayEmployeeId)}`
       : "";
-    const middleText = buildCalendarMiddleText(dateText);
-    const dayTooltipText = buildCalendarTooltipText(dateText, record, middleText, missingWorkTime);
+    const middleText = buildCalendarMiddleText(dateText, adminOnlyMyAttendance ? adminEmployeeId : "");
+    const dayTooltipText = buildCalendarTooltipText(dateText, record, middleText, missingWorkTime, adminOnlyMyAttendance ? adminEmployeeId : "");
     cells.push(`
       <button class="${classes.join(" ")}" type="button" data-date="${dateText}">
         <span class="calendar-day-number">${day}</span>
@@ -1291,6 +1375,11 @@ function resetEmployeeForm() {
   elements.employeeNightStartDateInput.value = "";
 }
 
+function setEmployeeFormVisible(visible) {
+  elements.employeeForm.classList.toggle("hidden", !visible);
+  elements.showEmployeeFormButton.classList.toggle("hidden", visible);
+}
+
 function resetRecommendationView() {
   currentRecommendation = null;
   elements.mriRecommendationName.textContent = "추천 전";
@@ -1299,6 +1388,7 @@ function resetRecommendationView() {
   elements.xrayRecommendationReason.textContent = "추천 버튼을 누르면 사유가 표시됩니다.";
   elements.manualMriSelect.value = "";
   elements.manualXraySelect.value = "";
+  refreshOtRoleOptions();
   elements.manualMriOtInput.value = "";
   elements.manualXrayOtInput.value = "";
   elements.nightMriSelect.value = "";
@@ -1324,6 +1414,7 @@ function resetAttendanceForm(keepName = false) {
   elements.attendanceOffSelect.value = "";
   elements.attendanceManualNoteInput.value = "";
   elements.attendanceAutoNoteInput.value = "";
+  updateSaturdayOffButtonState();
 }
 
 function setInputSectionVisibility(sectionName) {
@@ -1340,6 +1431,7 @@ function loadSelectedRecordIntoForm() {
 
   elements.manualMriSelect.value = record?.mriEmployeeId || "";
   elements.manualXraySelect.value = record?.xrayEmployeeId || "";
+  refreshOtRoleOptions();
   elements.nightMriSelect.value = record?.nightMriEmployeeId || "";
   elements.nightXraySelect.value = record?.nightXrayEmployeeId || "";
   elements.recordMemoInput.value = record?.memo || "";
@@ -1473,6 +1565,7 @@ async function saveSaturdayOff() {
 function loadAttendanceRecordIntoForm(date, name) {
   const record = appData.attendanceRecords.find(item => item.date === date && item.name === name);
   elements.attendanceNameSelect.value = name || "";
+  updateSaturdayOffButtonState();
 
   if (!record) {
     resetAttendanceForm(true);
@@ -1542,7 +1635,6 @@ async function deleteAttendanceRecord(date, name) {
 
 async function saveRecord() {
   const date = elements.selectedDateInput.value;
-  enforceSeniorMriAssignment({ updateReason: true });
   const mriEmployeeId = elements.manualMriSelect.value;
   const xrayEmployeeId = elements.manualXraySelect.value;
   const nightMriEmployeeId = elements.nightMriSelect.value;
@@ -1640,6 +1732,7 @@ async function saveRecord() {
 function editEmployee(employeeId) {
   const employee = appData.employees.find(item => item.id === employeeId);
   if (!employee) return;
+  setEmployeeFormVisible(true);
   elements.employeeIdInput.value = employee.id;
   elements.employeeNameInput.value = employee.name;
   elements.employeeHireDateInput.value = employee.hireDate || "";
@@ -1813,6 +1906,13 @@ function showAdminApp() {
   elements.adminAppShell.classList.remove("hidden");
 }
 
+function updateAdminAttendanceButton(user) {
+  adminEmployeeId = user?.employeeId ? String(user.employeeId) : "";
+  adminOnlyMyAttendance = false;
+  elements.adminMyAttendanceToggleButton.classList.toggle("hidden", !adminEmployeeId);
+  elements.adminMyAttendanceToggleButton.textContent = "내 근태 보기";
+}
+
 function showAdminLogin() {
   elements.adminLoginScreen.classList.remove("hidden");
   elements.adminAppShell.classList.add("hidden");
@@ -1872,6 +1972,7 @@ async function checkServerSession() {
       window.location.href = "./user.html";
       return;
     }
+    updateAdminAttendanceButton(payload.user);
     serverAutoSyncEnabled = true;
     showAdminApp();
     setServerStatus(`${payload.user.username} 계정으로 로그인 중입니다. 권한: ${payload.user.role}`);
@@ -1912,6 +2013,7 @@ async function loginServerAdmin(usernameOverride = "", passwordOverride = "") {
       window.location.href = "./user.html";
       return;
     }
+    updateAdminAttendanceButton(payload.user);
     serverAutoSyncEnabled = true;
     showAdminApp();
     setServerStatus(`${payload.user.username} 계정으로 로그인했습니다. 권한: ${payload.user.role}`);
@@ -1934,6 +2036,7 @@ async function logoutServerAdmin() {
     await serverRequest("/api/auth/logout", { method: "POST", body: "{}" });
     serverAutoSyncEnabled = false;
     serverSyncVersion = null;
+    updateAdminAttendanceButton(null);
     setServerRecoveryButtonVisible(false);
     showAdminLogin();
     setServerStatus("로그아웃했습니다.");
@@ -2034,7 +2137,7 @@ async function loadServerUsersAndEmployees() {
         <td>${user.role === "admin" ? "관리자" : "일반"}</td>
         <td>${escapeHtml(user.employeeName || "-")}</td>
         <td>
-          <div class="button-row">
+          <div class="button-row server-role-actions">
             <select data-role-user-id="${user.id}" aria-label="${escapeHtml(user.username)} 권한">
               <option value="user" ${user.role === "user" ? "selected" : ""}>일반 유저</option>
               <option value="admin" ${user.role === "admin" ? "selected" : ""}>관리자</option>
@@ -2052,6 +2155,20 @@ async function loadServerUsersAndEmployees() {
   } catch (error) {
     setServerStatus(error.message || "서버 계정 목록을 불러오지 못했습니다.", "error");
   }
+}
+
+function openServerAccountForm(form) {
+  elements.serverCreateUserForm.classList.add("hidden");
+  elements.serverChangePasswordForm.classList.add("hidden");
+  form.classList.remove("hidden");
+}
+
+function closeServerAccountForms() {
+  elements.serverCreateUserForm.classList.add("hidden");
+  elements.serverChangePasswordForm.classList.add("hidden");
+  elements.serverNewUsernameInput.value = "";
+  elements.serverNewPasswordInput.value = "";
+  elements.serverChangePasswordInput.value = "";
 }
 
 async function createServerUser() {
@@ -2073,6 +2190,7 @@ async function createServerUser() {
 
     elements.serverNewUsernameInput.value = "";
     elements.serverNewPasswordInput.value = "";
+    closeServerAccountForms();
     setServerStatus(`${username} ${role === "admin" ? "관리자" : "일반 유저"} 계정을 생성했습니다.`);
     await loadServerUsersAndEmployees();
   } catch (error) {
@@ -2093,6 +2211,7 @@ async function changeServerUserPassword() {
       body: JSON.stringify({ password })
     });
     elements.serverChangePasswordInput.value = "";
+    closeServerAccountForms();
     setServerStatus("비밀번호를 변경했습니다.");
   } catch (error) {
     setServerStatus(error.message || "비밀번호를 변경하지 못했습니다.", "error");
@@ -2149,6 +2268,12 @@ elements.previousMonthButton.addEventListener("click", () => {
 
 elements.nextMonthButton.addEventListener("click", () => {
   moveSelectedMonth(1);
+});
+
+elements.adminMyAttendanceToggleButton.addEventListener("click", () => {
+  adminOnlyMyAttendance = !adminOnlyMyAttendance;
+  elements.adminMyAttendanceToggleButton.textContent = adminOnlyMyAttendance ? "전체 근무 보기" : "내 근태 보기";
+  renderCalendar();
 });
 
 elements.calendarGrid.addEventListener("click", event => {
@@ -2216,18 +2341,15 @@ elements.attendanceFlexReasonInput.addEventListener("input", syncAttendanceNoteW
 elements.attendanceManualNoteInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
 elements.attendanceNameSelect.addEventListener("change", () => {
   loadAttendanceRecordIntoForm(elements.selectedDateInput.value, elements.attendanceNameSelect.value);
+  updateSaturdayOffButtonState();
 });
 elements.alternateMriButton.addEventListener("click", () => recommendAlternate("mri"));
 elements.alternateXrayButton.addEventListener("click", () => recommendAlternate("xray"));
 elements.manualMriSelect.addEventListener("change", () => {
-  if (enforceSeniorMriAssignment({ updateReason: true })) {
-    showMessage("선임 순서 기준으로 MRI/X-ray 역할을 조정했습니다.");
-  }
+  refreshOtRoleOptions();
 });
 elements.manualXraySelect.addEventListener("change", () => {
-  if (enforceSeniorMriAssignment({ updateReason: true })) {
-    showMessage("선임 순서 기준으로 MRI/X-ray 역할을 조정했습니다.");
-  }
+  refreshOtRoleOptions();
 });
 elements.backupJsonButton.addEventListener("click", backupJson);
 elements.restoreJsonButton.addEventListener("click", () => elements.restoreJsonInput.click());
@@ -2249,12 +2371,25 @@ elements.serverLogoutButton.addEventListener("click", logoutServerAdmin);
 elements.serverImportButton.addEventListener("click", importLocalBackupToServer);
 elements.serverReloadButton.addEventListener("click", reloadServerLatestData);
 elements.serverUsersRefreshButton.addEventListener("click", loadServerUsersAndEmployees);
+elements.serverCreateUserToggleButton.addEventListener("click", () => openServerAccountForm(elements.serverCreateUserForm));
+elements.serverChangePasswordToggleButton.addEventListener("click", () => openServerAccountForm(elements.serverChangePasswordForm));
+elements.serverCreateUserCancelButton.addEventListener("click", closeServerAccountForms);
+elements.serverChangePasswordCancelButton.addEventListener("click", closeServerAccountForms);
 elements.serverCreateUserButton.addEventListener("click", createServerUser);
 elements.serverChangePasswordButton.addEventListener("click", changeServerUserPassword);
 elements.serverUsersBody.addEventListener("click", event => {
   const button = event.target.closest("button[data-change-role-user-id]");
   if (!button) return;
   changeServerUserRole(button.dataset.changeRoleUserId);
+});
+
+document.querySelectorAll("[data-server-tool-section]").forEach(section => {
+  section.addEventListener("toggle", () => {
+    if (!section.open) return;
+    document.querySelectorAll("[data-server-tool-section]").forEach(otherSection => {
+      if (otherSection !== section) otherSection.open = false;
+    });
+  });
 });
 
 elements.employeeForm.addEventListener("submit", async event => {
@@ -2293,12 +2428,21 @@ elements.employeeForm.addEventListener("submit", async event => {
 
   await saveData();
   resetEmployeeForm();
+  setEmployeeFormVisible(false);
   renderAll();
   loadSelectedRecordIntoForm();
   showMessage("직원 정보가 저장되었습니다.");
 });
 
-elements.cancelEmployeeEditButton.addEventListener("click", resetEmployeeForm);
+elements.showEmployeeFormButton.addEventListener("click", () => {
+  resetEmployeeForm();
+  setEmployeeFormVisible(true);
+  elements.employeeNameInput.focus();
+});
+elements.cancelEmployeeEditButton.addEventListener("click", () => {
+  resetEmployeeForm();
+  setEmployeeFormVisible(false);
+});
 
 elements.employeeTableBody.addEventListener("click", event => {
   const button = event.target.closest("button");

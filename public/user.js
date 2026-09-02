@@ -14,6 +14,7 @@ const elements = {
   summaryCards: document.querySelector("#summaryCards"),
   calendarTitle: document.querySelector("#calendarTitle"),
   calendarGrid: document.querySelector("#calendarGrid"),
+  myAttendanceToggleButton: document.querySelector("#myAttendanceToggleButton"),
   currentPasswordInput: document.querySelector("#currentPasswordInput"),
   newPasswordInput: document.querySelector("#newPasswordInput"),
   changePasswordButton: document.querySelector("#changePasswordButton"),
@@ -21,6 +22,7 @@ const elements = {
 };
 
 let currentUser = null;
+let onlyMyAttendance = false;
 
 function getTodayMonth() {
   const now = new Date();
@@ -169,7 +171,7 @@ function renderCalendar(month, data, viewerEmployeeId) {
 
   for (let day = 1; day <= lastDate.getDate(); day += 1) {
     const dateText = `${year}-${String(monthNumber).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const dayContent = buildCalendarDayContent(dateText, data, viewerEmployeeId);
+    const dayContent = buildCalendarDayContent(dateText, data, viewerEmployeeId, onlyMyAttendance);
     const hasData = dayContent.otText || dayContent.middleText || dayContent.nightText;
     cells.push(`
       <div class="calendar-day ${hasData ? "has-data" : ""}">
@@ -186,14 +188,29 @@ function renderCalendar(month, data, viewerEmployeeId) {
   elements.calendarGrid.innerHTML = cells.join("");
 }
 
-function buildCalendarDayContent(dateText, data, viewerEmployeeId) {
+function buildCalendarDayContent(dateText, data, viewerEmployeeId, mineOnly = false) {
   const record = data.records.find(item => item.date === dateText);
-  const attendanceRecords = data.attendanceRecords.filter(item => item.date === dateText);
-  const otText = record?.needsOt
-    ? `OT: ${formatAssignmentName(data, attendanceRecords, record.mriEmployeeId, viewerEmployeeId, "otEarned")}/${formatAssignmentName(data, attendanceRecords, record.xrayEmployeeId, viewerEmployeeId, "otEarned")}`
+  const dayAttendanceRecords = data.attendanceRecords.filter(item => item.date === dateText);
+  const attendanceRecords = mineOnly
+    ? dayAttendanceRecords.filter(item => String(item.employeeId || "") === String(viewerEmployeeId || ""))
+    : dayAttendanceRecords;
+  const isMine = employeeId => String(employeeId || "") === String(viewerEmployeeId || "");
+  const otText = record?.needsOt && (!mineOnly || isMine(record.mriEmployeeId) || isMine(record.xrayEmployeeId))
+    ? `OT: ${mineOnly
+      ? [record.mriEmployeeId, record.xrayEmployeeId]
+        .filter(isMine)
+        .map(employeeId => formatOwnAssignment(attendanceRecords, employeeId, viewerEmployeeId, "otEarned"))
+        .join("/")
+      : `${formatAssignmentName(data, attendanceRecords, record.mriEmployeeId, viewerEmployeeId, "otEarned")}/${formatAssignmentName(data, attendanceRecords, record.xrayEmployeeId, viewerEmployeeId, "otEarned")}`}`
     : "";
-  const nightText = record?.nightMriEmployeeId || record?.nightXrayEmployeeId
-    ? `야간: ${formatAssignmentName(data, attendanceRecords, record.nightMriEmployeeId, viewerEmployeeId, "nightOt")}/${formatAssignmentName(data, attendanceRecords, record.nightXrayEmployeeId, viewerEmployeeId, "nightOt")}`
+  const nightText = (record?.nightMriEmployeeId || record?.nightXrayEmployeeId) &&
+    (!mineOnly || isMine(record.nightMriEmployeeId) || isMine(record.nightXrayEmployeeId))
+    ? `야간: ${mineOnly
+      ? [record.nightMriEmployeeId, record.nightXrayEmployeeId]
+        .filter(isMine)
+        .map(employeeId => formatOwnAssignment(attendanceRecords, employeeId, viewerEmployeeId, "nightOt"))
+        .join("/")
+      : `${formatAssignmentName(data, attendanceRecords, record.nightMriEmployeeId, viewerEmployeeId, "nightOt")}/${formatAssignmentName(data, attendanceRecords, record.nightXrayEmployeeId, viewerEmployeeId, "nightOt")}`}`
     : "";
 
   const saturdayOffNames = attendanceRecords
@@ -201,7 +218,7 @@ function buildCalendarDayContent(dateText, data, viewerEmployeeId) {
     .map(recordItem => givenName(recordItem.name));
   const attendanceLines = attendanceRecords
     .filter(recordItem => recordItem.off !== "토요일OFF")
-    .map(recordItem => buildAttendanceLine(recordItem, viewerEmployeeId, record))
+    .map(recordItem => buildAttendanceLine(recordItem, viewerEmployeeId, record, mineOnly))
     .filter(Boolean);
 
   if (saturdayOffNames.length) {
@@ -215,7 +232,7 @@ function buildCalendarDayContent(dateText, data, viewerEmployeeId) {
   };
 }
 
-function buildAttendanceLine(recordItem, viewerEmployeeId, workRecord) {
+function buildAttendanceLine(recordItem, viewerEmployeeId, workRecord, mineOnly = false) {
   const isMine = String(recordItem.employeeId || "") === String(viewerEmployeeId || "");
   const isAssignedToEarlyOt = Boolean(workRecord?.needsOt) &&
     (String(workRecord.mriEmployeeId || "") === String(recordItem.employeeId || "") ||
@@ -230,7 +247,14 @@ function buildAttendanceLine(recordItem, viewerEmployeeId, workRecord) {
   const manualNote = stripAutoOtNotePrefix(recordItem.note);
   const hasOwnPositiveOt = (recordItem.otEarned > 0 && !isAssignedToEarlyOt) || recordItem.holidayOt > 0;
   if (isMine && hasOwnPositiveOt && manualNote) details.push(manualNote);
-  return details.length ? `${givenName(recordItem.name)} ${details.join(" ")}` : "";
+  return details.length ? (mineOnly ? details.join(" ") : `${givenName(recordItem.name)} ${details.join(" ")}`) : "";
+}
+
+function formatOwnAssignment(attendanceRecords, employeeId, viewerEmployeeId, timeField) {
+  if (String(employeeId || "") !== String(viewerEmployeeId || "")) return "";
+  const attendanceRecord = attendanceRecords.find(item => String(item.employeeId || "") === String(employeeId || ""));
+  const timeValue = Number(attendanceRecord?.[timeField] || 0);
+  return timeValue > 0 ? formatValue(timeValue) : "있음";
 }
 
 function getEmployeeName(data, employeeId) {
@@ -296,5 +320,10 @@ elements.changePasswordToggleButton.addEventListener("click", togglePasswordPane
 elements.changePasswordButton.addEventListener("click", changeOwnPassword);
 elements.reloadButton.addEventListener("click", loadDashboard);
 elements.monthInput.addEventListener("change", loadDashboard);
+elements.myAttendanceToggleButton.addEventListener("click", () => {
+  onlyMyAttendance = !onlyMyAttendance;
+  elements.myAttendanceToggleButton.textContent = onlyMyAttendance ? "전체 근무 보기" : "내 근태 보기";
+  loadCalendar();
+});
 
 checkSession();
