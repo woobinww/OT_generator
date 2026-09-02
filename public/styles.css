@@ -611,6 +611,27 @@ th {
   max-width: 20rem;
 }
 
+.annual-leave-box {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px dashed rgba(120, 96, 65, 0.28);
+  border-radius: 12px;
+  display: flex;
+  gap: 0.7rem;
+  justify-content: space-between;
+  margin: 0.7rem 0;
+  padding: 0.7rem;
+}
+
+.annual-leave-box .small-note {
+  margin: 0.15rem 0 0;
+}
+
+.annual-leave-box button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .night-assignment-grid {
   display: grid;
   gap: 0.6rem;
@@ -654,6 +675,11 @@ th {
 
 .saturday-off-item input {
   width: auto;
+}
+
+.calendar-day.is-annual-selected {
+  background: #fff0c2;
+  box-shadow: inset 0 0 0 2px #d69e2e;
 }
 
 .server-login-grid,

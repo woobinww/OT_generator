@@ -77,6 +77,7 @@ let serverAutoSyncTimer = null;
 let serverSyncVersion = null;
 let adminEmployeeId = "";
 let adminOnlyMyAttendance = false;
+const selectedAnnualLeaveDates = new Set();
 
 const elements = {
   adminLoginScreen: document.querySelector("#adminLoginScreen"),
@@ -134,6 +135,9 @@ const elements = {
   attendanceFlexUsedInput: document.querySelector("#attendanceFlexUsedInput"),
   attendanceFlexReasonInput: document.querySelector("#attendanceFlexReasonInput"),
   attendanceOffSelect: document.querySelector("#attendanceOffSelect"),
+  annualLeaveBox: document.querySelector("#annualLeaveBox"),
+  annualLeaveSelectionSummary: document.querySelector("#annualLeaveSelectionSummary"),
+  saveAnnualLeaveButton: document.querySelector("#saveAnnualLeaveButton"),
   attendanceManualNoteInput: document.querySelector("#attendanceManualNoteInput"),
   attendanceAutoNoteInput: document.querySelector("#attendanceAutoNoteInput"),
   saturdayOffBox: document.querySelector(".saturday-off-box"),
@@ -1270,6 +1274,7 @@ function renderCalendar() {
     const weekday = getWeekday(dateText);
     const classes = ["calendar-day"];
     if (dateText === selectedDate) classes.push("is-selected");
+    if (selectedAnnualLeaveDates.has(dateText)) classes.push("is-annual-selected");
     if (dateText === todayText) classes.push("is-today");
     if (weekday === 0) classes.push("is-sunday");
     if (weekday === 6) classes.push("is-saturday");
@@ -1414,7 +1419,22 @@ function resetAttendanceForm(keepName = false) {
   elements.attendanceOffSelect.value = "";
   elements.attendanceManualNoteInput.value = "";
   elements.attendanceAutoNoteInput.value = "";
+  selectedAnnualLeaveDates.clear();
+  updateAnnualLeaveView();
   updateSaturdayOffButtonState();
+}
+
+function updateAnnualLeaveView() {
+  const annualLeaveMode = elements.attendanceOffSelect.value === "연차";
+  elements.annualLeaveBox.classList.toggle("hidden", !annualLeaveMode);
+  if (!annualLeaveMode) selectedAnnualLeaveDates.clear();
+
+  const dates = Array.from(selectedAnnualLeaveDates).sort();
+  elements.annualLeaveSelectionSummary.textContent = dates.length
+    ? `${dates.length}일 선택됨: ${dates.join(", ")}`
+    : "달력에서 연차를 사용할 날짜를 하나씩 선택해 주세요.";
+  elements.saveAnnualLeaveButton.disabled = !annualLeaveMode || dates.length === 0;
+  renderCalendar();
 }
 
 function setInputSectionVisibility(sectionName) {
@@ -1584,6 +1604,7 @@ function loadAttendanceRecordIntoForm(date, name) {
     ? record.manualNote || ""
     : stripAutoOtNotePrefix(record.note || "");
   syncAttendanceNoteWithOtInputs();
+  updateAnnualLeaveView();
 }
 
 async function saveAttendanceRecord() {
@@ -1621,6 +1642,35 @@ async function saveAttendanceRecord() {
   renderAll();
   resetAttendanceForm(true);
   showMessage(`${date} ${name} 근태 기록을 저장했습니다.`);
+}
+
+async function saveAnnualLeaveRecords() {
+  const name = elements.attendanceNameSelect.value;
+  const dates = Array.from(selectedAnnualLeaveDates).sort();
+
+  if (!name) {
+    showMessage("연차를 기록할 직원을 선택해 주세요.", "error");
+    return;
+  }
+  if (!dates.length) {
+    showMessage("달력에서 연차 날짜를 한 개 이상 선택해 주세요.", "error");
+    return;
+  }
+
+  const existingDates = dates.filter(date => getAttendanceRecord(date, name));
+  if (existingDates.length && !window.confirm(`${existingDates.join(", ")}에 이미 근태 기록이 있습니다. 연차로 변경할까요?`)) {
+    return;
+  }
+
+  dates.forEach(date => {
+    upsertAttendanceRecordByName(date, name, { off: "연차" });
+  });
+
+  await saveData();
+  selectedAnnualLeaveDates.clear();
+  renderAll();
+  updateAnnualLeaveView();
+  showMessage(`${name}님의 연차 ${dates.length}일을 등록했습니다.`);
 }
 
 async function deleteAttendanceRecord(date, name) {
@@ -2279,6 +2329,18 @@ elements.adminMyAttendanceToggleButton.addEventListener("click", () => {
 elements.calendarGrid.addEventListener("click", event => {
   const button = event.target.closest("button[data-date]");
   if (!button) return;
+  if (elements.attendanceOffSelect.value === "연차") {
+    const date = button.dataset.date;
+    if (selectedAnnualLeaveDates.has(date)) {
+      selectedAnnualLeaveDates.delete(date);
+    } else {
+      selectedAnnualLeaveDates.add(date);
+    }
+    elements.selectedDateInput.value = date;
+    updateAnnualLeaveView();
+    renderCalendar();
+    return;
+  }
   elements.selectedDateInput.value = button.dataset.date;
   renderAll();
   loadSelectedRecordIntoForm();
@@ -2331,6 +2393,7 @@ elements.resetFormButton.addEventListener("click", resetRecommendationView);
 elements.exportCsvButton.addEventListener("click", exportCsv);
 elements.exportAttendanceCsvButton.addEventListener("click", exportAttendanceCsv);
 elements.saveAttendanceButton.addEventListener("click", saveAttendanceRecord);
+elements.saveAnnualLeaveButton.addEventListener("click", saveAnnualLeaveRecords);
 elements.saveSaturdayOffButton.addEventListener("click", saveSaturdayOff);
 elements.resetAttendanceButton.addEventListener("click", () => resetAttendanceForm());
 elements.attendanceOtInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
@@ -2343,6 +2406,7 @@ elements.attendanceNameSelect.addEventListener("change", () => {
   loadAttendanceRecordIntoForm(elements.selectedDateInput.value, elements.attendanceNameSelect.value);
   updateSaturdayOffButtonState();
 });
+elements.attendanceOffSelect.addEventListener("change", updateAnnualLeaveView);
 elements.alternateMriButton.addEventListener("click", () => recommendAlternate("mri"));
 elements.alternateXrayButton.addEventListener("click", () => recommendAlternate("xray"));
 elements.manualMriSelect.addEventListener("change", () => {
