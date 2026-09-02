@@ -413,7 +413,7 @@ th {
 
 .employee-form {
   align-items: end;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   margin-bottom: 1rem;
 }
 
@@ -528,7 +528,7 @@ th {
 .attendance-grid {
   display: grid;
   gap: 0.8rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   margin-bottom: 0.8rem;
 }
 
@@ -627,9 +627,22 @@ th {
   margin: 0.15rem 0 0;
 }
 
-.annual-leave-box button:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
+.annual-leave-memo-field {
+  align-items: center;
+  display: flex;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.annual-leave-memo-field span {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.annual-leave-memo-field input {
+  width: min(14rem, 30vw);
 }
 
 .night-assignment-grid {
@@ -682,6 +695,11 @@ th {
   box-shadow: inset 0 0 0 2px #d69e2e;
 }
 
+.calendar-day.has-attendance-conflict {
+  background: #ffe0e0;
+  box-shadow: inset 0 0 0 2px #d64545;
+}
+
 .server-login-grid,
 .server-import-box {
   display: grid;
@@ -722,6 +740,7 @@ th {
   display: flex;
   gap: 0.45rem;
   justify-content: space-between;
+  white-space: nowrap;
 }
 
 .employee-form > label input,

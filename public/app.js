@@ -137,7 +137,7 @@ const elements = {
   attendanceOffSelect: document.querySelector("#attendanceOffSelect"),
   annualLeaveBox: document.querySelector("#annualLeaveBox"),
   annualLeaveSelectionSummary: document.querySelector("#annualLeaveSelectionSummary"),
-  saveAnnualLeaveButton: document.querySelector("#saveAnnualLeaveButton"),
+  annualLeaveMemoInput: document.querySelector("#annualLeaveMemoInput"),
   attendanceManualNoteInput: document.querySelector("#attendanceManualNoteInput"),
   attendanceAutoNoteInput: document.querySelector("#attendanceAutoNoteInput"),
   saturdayOffBox: document.querySelector(".saturday-off-box"),
@@ -1291,6 +1291,9 @@ function renderCalendar() {
       recordDates.add(dateText);
     }
     if (recordDates.has(dateText)) classes.push("has-record");
+    if (appData.attendanceRecords.some(item => item.date === dateText && (!adminOnlyMyAttendance || item.name === getEmployeeName(adminEmployeeId)) && hasAttendanceConflict(item))) {
+      classes.push("has-attendance-conflict");
+    }
     const otText = record?.needsOt && (!adminOnlyMyAttendance || ownAssignment.ot.length)
       ? adminOnlyMyAttendance
         ? `OT: ${ownAssignment.ot.map(employeeId => formatOwnCalendarAssignment(dateText, employeeId, "otEarned")).join("/")}`
@@ -1419,6 +1422,7 @@ function resetAttendanceForm(keepName = false) {
   elements.attendanceOffSelect.value = "";
   elements.attendanceManualNoteInput.value = "";
   elements.attendanceAutoNoteInput.value = "";
+  elements.annualLeaveMemoInput.value = "";
   selectedAnnualLeaveDates.clear();
   updateAnnualLeaveView();
   updateSaturdayOffButtonState();
@@ -1433,8 +1437,14 @@ function updateAnnualLeaveView() {
   elements.annualLeaveSelectionSummary.textContent = dates.length
     ? `${dates.length}일 선택됨: ${dates.join(", ")}`
     : "달력에서 연차를 사용할 날짜를 하나씩 선택해 주세요.";
-  elements.saveAnnualLeaveButton.disabled = !annualLeaveMode || dates.length === 0;
   renderCalendar();
+}
+
+function handleAttendanceOffChange() {
+  if (elements.attendanceOffSelect.value === "연차") {
+    selectedAnnualLeaveDates.add(elements.selectedDateInput.value);
+  }
+  updateAnnualLeaveView();
 }
 
 function setInputSectionVisibility(sectionName) {
@@ -1495,6 +1505,12 @@ function loadSelectedRecordIntoForm() {
 
 function getAttendanceRecord(date, name) {
   return appData.attendanceRecords.find(record => record.date === date && record.name === name);
+}
+
+function hasAttendanceConflict(record) {
+  if (!record?.off) return false;
+  return ["otEarned", "otUsed", "nightOt", "holidayOt", "flexEarned", "flexUsed"]
+    .some(fieldName => toNumberOrZero(record[fieldName]) !== 0);
 }
 
 function upsertAttendanceTime(date, employeeId, fieldName, value) {
@@ -1615,6 +1631,10 @@ async function saveAttendanceRecord() {
     showMessage("근태를 기록할 직원을 선택해 주세요.", "error");
     return;
   }
+  if (elements.attendanceOffSelect.value === "연차") {
+    await saveAnnualLeaveRecords();
+    return;
+  }
   if (toNumberOrZero(elements.attendanceFlexEarnedInput.value) !== 0 && !elements.attendanceFlexReasonInput.value.trim()) {
     showMessage("flexOt 한 시간을 입력한 경우 flexOt 이유를 반드시 입력해 주세요.", "error");
     return;
@@ -1657,18 +1677,23 @@ async function saveAnnualLeaveRecords() {
     return;
   }
 
-  const existingDates = dates.filter(date => getAttendanceRecord(date, name));
-  if (existingDates.length && !window.confirm(`${existingDates.join(", ")}에 이미 근태 기록이 있습니다. 연차로 변경할까요?`)) {
+  const conflictingDates = dates.filter(date => {
+    const record = getAttendanceRecord(date, name);
+    return record && (record.off !== "연차" || hasAttendanceConflict(record));
+  });
+  if (conflictingDates.length && !window.confirm(`${conflictingDates.join(", ")}에 다른 근태 기록이 있습니다. 연차와 함께 저장할까요?`)) {
     return;
   }
 
+  const memo = elements.annualLeaveMemoInput.value.trim();
   dates.forEach(date => {
-    upsertAttendanceRecordByName(date, name, { off: "연차" });
+    upsertAttendanceRecordByName(date, name, { off: "연차", manualNote: memo });
   });
 
   await saveData();
   selectedAnnualLeaveDates.clear();
   renderAll();
+  resetAttendanceForm(true);
   updateAnnualLeaveView();
   showMessage(`${name}님의 연차 ${dates.length}일을 등록했습니다.`);
 }
@@ -2393,7 +2418,6 @@ elements.resetFormButton.addEventListener("click", resetRecommendationView);
 elements.exportCsvButton.addEventListener("click", exportCsv);
 elements.exportAttendanceCsvButton.addEventListener("click", exportAttendanceCsv);
 elements.saveAttendanceButton.addEventListener("click", saveAttendanceRecord);
-elements.saveAnnualLeaveButton.addEventListener("click", saveAnnualLeaveRecords);
 elements.saveSaturdayOffButton.addEventListener("click", saveSaturdayOff);
 elements.resetAttendanceButton.addEventListener("click", () => resetAttendanceForm());
 elements.attendanceOtInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
@@ -2403,10 +2427,13 @@ elements.attendanceFlexUsedInput.addEventListener("input", syncAttendanceNoteWit
 elements.attendanceFlexReasonInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
 elements.attendanceManualNoteInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
 elements.attendanceNameSelect.addEventListener("change", () => {
+  selectedAnnualLeaveDates.clear();
+  elements.annualLeaveMemoInput.value = "";
+  elements.attendanceOffSelect.value = "";
   loadAttendanceRecordIntoForm(elements.selectedDateInput.value, elements.attendanceNameSelect.value);
   updateSaturdayOffButtonState();
 });
-elements.attendanceOffSelect.addEventListener("change", updateAnnualLeaveView);
+elements.attendanceOffSelect.addEventListener("change", handleAttendanceOffChange);
 elements.alternateMriButton.addEventListener("click", () => recommendAlternate("mri"));
 elements.alternateXrayButton.addEventListener("click", () => recommendAlternate("xray"));
 elements.manualMriSelect.addEventListener("change", () => {
