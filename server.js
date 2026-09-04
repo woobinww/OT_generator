@@ -3,7 +3,7 @@ const { createApp } = require("./src/server-app");
 const { initializeDatabase } = require("./src/database");
 
 const port = Number(process.env.PORT || 3000);
-const host = process.env.HOST || "0.0.0.0";
+const host = process.env.HOST || "127.0.0.1";
 
 const database = initializeDatabase();
 const app = createApp({ database });
