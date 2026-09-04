@@ -23,18 +23,32 @@ jobs:
         run: |
           Set-Location $env:GITHUB_WORKSPACE
 
-          npm run check
+          $nodePaths = @(
+            "$env:ProgramFiles\nodejs",
+            "$env:APPDATA\npm",
+            "$env:LOCALAPPDATA\Programs\nodejs"
+          ) | Where-Object { Test-Path -LiteralPath $_ }
+          $env:Path = (($nodePaths + $env:Path) -join ';')
+
+          $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
+          $pm2Command = Get-Command pm2.cmd -ErrorAction SilentlyContinue
+          if (-not $npmCommand -or -not $pm2Command) {
+            Write-Host "PATH=$env:Path"
+            throw 'Node.js/npm 또는 PM2를 찾지 못했습니다. self-hosted runner 서비스 계정에 설치되어 있는지 확인하세요.'
+          }
+
+          npm.cmd run check
           if ($LASTEXITCODE -ne 0) {
             throw 'JavaScript syntax check failed.'
           }
 
-          pm2 restart attendance-server --update-env
+          pm2.cmd restart attendance-server --update-env
           if ($LASTEXITCODE -ne 0) {
             throw 'PM2 process restart failed.'
           }
 
-          pm2 save
-          pm2 status
+          pm2.cmd save
+          pm2.cmd status
 
           $response = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000
           if ($response.StatusCode -ne 200) {
