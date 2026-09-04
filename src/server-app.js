@@ -109,7 +109,7 @@ async function handleApiRequest({ request, response, url, database }) {
     if (!session) return;
 
     const month = url.searchParams.get("month") || getCurrentMonth();
-    sendJson(response, 200, { month, viewerEmployeeId: session.employeeId ? String(session.employeeId) : "", data: getCalendarData(database, month) });
+    sendJson(response, 200, { month, viewerEmployeeId: session.employeeId ? String(session.employeeId) : "", data: getUserCalendarData(database, month, session.employeeId) });
     return;
   }
 
@@ -151,6 +151,24 @@ async function handleApiRequest({ request, response, url, database }) {
     if (!session) return;
 
     sendJson(response, 200, { version: getSyncVersion(database) });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/admin/date-memos") {
+    const session = requireRole(request, response, "admin");
+    if (!session) return;
+
+    sendJson(response, 200, { memos: getDateMemos(database) });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/date-memos") {
+    const session = requireRole(request, response, "admin");
+    if (!session) return;
+
+    const body = await readJsonBody(request);
+    const memo = saveDateMemo(database, body?.date, body?.memo);
+    sendJson(response, 200, { ok: true, memo });
     return;
   }
 
@@ -225,6 +243,44 @@ async function handleApiRequest({ request, response, url, database }) {
   }
 
   sendJson(response, 404, { error: "API 경로를 찾을 수 없습니다." });
+}
+
+function getDateMemos(database) {
+  return Object.fromEntries(database.prepare(`
+    SELECT date, memo
+    FROM date_memos
+    WHERE memo <> ''
+    ORDER BY date ASC
+  `).all().map(row => [row.date, row.memo]));
+}
+
+function saveDateMemo(database, date, memo) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) {
+    const error = new Error("메모 날짜 형식이 올바르지 않습니다.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const normalizedMemo = String(memo || "").trim();
+  if (normalizedMemo.length > 10000) {
+    const error = new Error("메모는 10,000자 이내로 입력해 주세요.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!normalizedMemo) {
+    database.prepare("DELETE FROM date_memos WHERE date = ?").run(date);
+    return { date, memo: "" };
+  }
+
+  database.prepare(`
+    INSERT INTO date_memos (date, memo)
+    VALUES (?, ?)
+    ON CONFLICT(date) DO UPDATE SET
+      memo = excluded.memo,
+      updated_at = CURRENT_TIMESTAMP
+  `).run(date, normalizedMemo);
+  return { date, memo: normalizedMemo };
 }
 
 function getMonthlySummary(database, month, employeeId = null) {
@@ -440,6 +496,48 @@ function getCalendarData(database, month) {
     ...data,
     records: data.records.filter(record => record.date.startsWith(`${month}-`)),
     attendanceRecords: data.attendanceRecords.filter(record => record.date.startsWith(`${month}-`))
+  };
+}
+
+function getUserCalendarData(database, month, viewerEmployeeId) {
+  const data = getFullData(database);
+  const viewerId = String(viewerEmployeeId || "");
+
+  return {
+    employees: data.employees.map(employee => ({
+      id: employee.id,
+      name: employee.name
+    })),
+    records: data.records
+      .filter(record => record.date.startsWith(`${month}-`))
+      .map(record => ({
+        date: record.date,
+        needsOt: record.needsOt,
+        mriEmployeeId: record.mriEmployeeId,
+        xrayEmployeeId: record.xrayEmployeeId,
+        nightMriEmployeeId: record.nightMriEmployeeId,
+        nightXrayEmployeeId: record.nightXrayEmployeeId
+      })),
+    attendanceRecords: data.attendanceRecords
+      .filter(record => record.date.startsWith(`${month}-`))
+      .map(record => {
+        const isMine = String(record.employeeId || "") === viewerId;
+        return {
+          date: record.date,
+          employeeId: record.employeeId,
+          name: record.name,
+          ot: isMine ? record.ot : 0,
+          otEarned: isMine ? record.otEarned : 0,
+          otUsed: isMine ? record.otUsed : 0,
+          nightOt: isMine ? record.nightOt : 0,
+          holidayOt: isMine ? record.holidayOt : 0,
+          flexOt: isMine ? record.flexOt : 0,
+          flexEarned: isMine ? record.flexEarned : 0,
+          flexUsed: isMine ? record.flexUsed : 0,
+          off: record.off,
+          note: isMine ? record.note : ""
+        };
+      })
   };
 }
 

@@ -45,7 +45,7 @@ function importLocalData(database, localData, options = {}) {
     });
 
     localData.attendanceRecords.forEach(record => {
-      const employeeId = employeeIdMap.get(record.name);
+      const employeeId = employeeIdMap.get(record.employeeId) || employeeIdMap.get(record.name);
       if (!employeeId) return;
       upsertAttendanceRecord(database, record, employeeId);
       summary.attendanceRecords += 1;
@@ -70,28 +70,31 @@ function importLocalData(database, localData, options = {}) {
 }
 
 function deleteMissingRows(database, localData) {
+  const employeeIds = new Set(localData.employees
+    .map(employee => String(employee.id || ""))
+    .filter(id => /^\d+$/.test(id)));
   const employeeNames = new Set(localData.employees.map(employee => employee.name).filter(Boolean));
   const recordDates = new Set(localData.records.map(record => record.date).filter(Boolean));
   const attendanceKeys = new Set(localData.attendanceRecords
-    .filter(record => record.date && record.name)
-    .map(record => `${record.date}|${record.name}`));
+    .filter(record => record.date && (record.employeeId || record.name))
+    .map(record => `${record.date}|${record.employeeId || record.name}`));
 
   let deletedWorkRecords = 0;
   let deletedAttendanceRecords = 0;
   let deletedEmployees = 0;
 
   const existingAttendanceRecords = database.prepare(`
-    SELECT a.date, e.name
+    SELECT a.date, a.employee_id AS employeeId, e.name
     FROM attendance_records a
     JOIN employees e ON e.id = a.employee_id
   `).all();
 
   existingAttendanceRecords.forEach(record => {
-    if (attendanceKeys.has(`${record.date}|${record.name}`)) return;
+    if (attendanceKeys.has(`${record.date}|${record.employeeId}`) || attendanceKeys.has(`${record.date}|${record.name}`)) return;
     const result = database.prepare(`
       DELETE FROM attendance_records
-      WHERE date = ? AND employee_id = (SELECT id FROM employees WHERE name = ?)
-    `).run(record.date, record.name);
+      WHERE date = ? AND employee_id = ?
+    `).run(record.date, record.employeeId);
     deletedAttendanceRecords += Number(result.changes || 0);
   });
 
@@ -104,7 +107,7 @@ function deleteMissingRows(database, localData) {
 
   const existingEmployees = database.prepare("SELECT id, name FROM employees").all();
   existingEmployees.forEach(employee => {
-    if (employeeNames.has(employee.name)) return;
+    if (employeeIds.has(String(employee.id)) || employeeNames.has(employee.name)) return;
     database.prepare(`
       UPDATE work_records
       SET mri_employee_id = CASE WHEN mri_employee_id = ? THEN NULL ELSE mri_employee_id END,
@@ -156,12 +159,15 @@ function upsertEmployee(database, employee, index) {
     throw new Error("이름이 없는 직원 데이터가 있습니다.");
   }
 
-  const existingEmployee = database.prepare("SELECT id FROM employees WHERE name = ?").get(normalizedEmployee.name);
+  const existingEmployee = /^\d+$/.test(String(employee.id || ""))
+    ? database.prepare("SELECT id FROM employees WHERE id = ?").get(Number(employee.id))
+    : database.prepare("SELECT id FROM employees WHERE name = ?").get(normalizedEmployee.name);
 
   if (existingEmployee) {
     database.prepare(`
       UPDATE employees
-      SET display_order = ?,
+      SET name = ?,
+          display_order = ?,
           hire_date = NULLIF(?, ''),
           retire_date = NULLIF(?, ''),
           mri_start_date = NULLIF(?, ''),
@@ -170,6 +176,7 @@ function upsertEmployee(database, employee, index) {
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(
+      normalizedEmployee.name,
       normalizedEmployee.displayOrder,
       normalizedEmployee.hireDate,
       normalizedEmployee.retireDate,

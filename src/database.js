@@ -63,6 +63,13 @@ function createTables(database) {
       FOREIGN KEY (night_xray_employee_id) REFERENCES employees(id)
     );
 
+    CREATE TABLE IF NOT EXISTS date_memos (
+      date TEXT PRIMARY KEY,
+      memo TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS attendance_records (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       date TEXT NOT NULL,

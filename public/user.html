@@ -13,33 +13,39 @@
         <h1>내 근무·근태 조회</h1>
       </div>
       <div class="user-topbar-actions">
-        <button id="changePasswordToggleButton" type="button">비밀번호 변경</button>
-        <button id="logoutButton" type="button">로그아웃</button>
+        <button id="changePasswordToggleButton" class="utility-icon-button" type="button" aria-label="비밀번호 변경" title="비밀번호 변경">⚿</button>
+        <button id="logoutButton" class="utility-icon-button" type="button" aria-label="로그아웃" title="로그아웃">↪</button>
       </div>
     </header>
 
     <main class="user-layout">
       <section id="loginPanel" class="panel">
-        <p class="eyebrow">로그인</p>
-        <h2>계정으로 접속</h2>
-        <label>
-          사용자 ID
-          <input id="usernameInput" type="text" autocomplete="username">
-        </label>
-        <label>
-          비밀번호
-          <input id="passwordInput" type="password" autocomplete="current-password">
-        </label>
-        <button id="loginButton" class="primary" type="button">로그인</button>
+        <form id="loginForm">
+          <p class="eyebrow">로그인</p>
+          <h2>계정으로 접속</h2>
+          <label>
+            사용자 ID
+            <input id="usernameInput" type="text" autocomplete="username">
+          </label>
+          <label>
+            비밀번호
+            <input id="passwordInput" type="password" autocomplete="current-password">
+          </label>
+          <button id="loginButton" class="primary" type="submit">로그인</button>
+        </form>
       </section>
 
       <section id="summaryPanel" class="panel hidden">
         <div class="section-row">
           <div>
-            <p class="eyebrow">월간 요약</p>
             <h2 id="summaryTitle">내 근태 요약</h2>
           </div>
-          <input id="monthInput" type="month">
+          <div class="month-controls" aria-label="월 이동">
+            <button id="previousMonthButton" type="button" aria-label="이전 달">‹</button>
+            <input id="monthInput" type="month" aria-label="조회 월">
+            <button id="todayMonthButton" type="button">today</button>
+            <button id="nextMonthButton" type="button" aria-label="다음 달">›</button>
+          </div>
         </div>
         <div id="summaryCards" class="summary-grid"></div>
       </section>
@@ -66,20 +72,23 @@
       </section>
 
       <section id="calendarPanel" class="panel hidden">
-        <div class="section-row">
+        <div class="section-row calendar-heading-row">
           <div>
-            <p class="eyebrow">달력 조회</p>
             <h2 id="calendarTitle">근무 달력</h2>
           </div>
-          <button id="reloadButton" type="button">새로고침</button>
+          <div class="calendar-actions">
+            <span id="lastUpdatedText" class="last-updated" aria-live="polite"></span>
+            <button id="reloadButton" class="reload-icon-button" type="button" aria-label="새로고침" title="새로고침">↻</button>
+          </div>
         </div>
-        <p class="muted guide-text">조출/야간은 전체 근무 정보를 표시합니다. OT 사용/탄력 사용은 내 근태만 표시합니다.</p>
-        <button id="myAttendanceToggleButton" class="primary attendance-summary-button" type="button">
-          내 근태 보기
-        </button>
+        <div class="attendance-mode-switch" role="group" aria-label="달력 표시 모드">
+          <button id="allAttendanceButton" class="primary" type="button" aria-pressed="true">전체 근무표</button>
+          <button id="myAttendanceButton" type="button" aria-pressed="false">내 근태</button>
+        </div>
         <div class="calendar-weekdays">
           <span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span>
         </div>
+        <p id="calendarLoading" class="loading hidden" role="status">달력 데이터를 불러오는 중입니다…</p>
         <div id="calendarGrid" class="calendar-grid"></div>
       </section>
 

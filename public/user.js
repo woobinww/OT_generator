@@ -3,6 +3,7 @@ const elements = {
   summaryPanel: document.querySelector("#summaryPanel"),
   passwordPanel: document.querySelector("#passwordPanel"),
   calendarPanel: document.querySelector("#calendarPanel"),
+  loginForm: document.querySelector("#loginForm"),
   usernameInput: document.querySelector("#usernameInput"),
   passwordInput: document.querySelector("#passwordInput"),
   loginButton: document.querySelector("#loginButton"),
@@ -10,11 +11,17 @@ const elements = {
   changePasswordToggleButton: document.querySelector("#changePasswordToggleButton"),
   monthInput: document.querySelector("#monthInput"),
   reloadButton: document.querySelector("#reloadButton"),
+  previousMonthButton: document.querySelector("#previousMonthButton"),
+  todayMonthButton: document.querySelector("#todayMonthButton"),
+  nextMonthButton: document.querySelector("#nextMonthButton"),
+  lastUpdatedText: document.querySelector("#lastUpdatedText"),
+  calendarLoading: document.querySelector("#calendarLoading"),
   summaryTitle: document.querySelector("#summaryTitle"),
   summaryCards: document.querySelector("#summaryCards"),
   calendarTitle: document.querySelector("#calendarTitle"),
   calendarGrid: document.querySelector("#calendarGrid"),
-  myAttendanceToggleButton: document.querySelector("#myAttendanceToggleButton"),
+  allAttendanceButton: document.querySelector("#allAttendanceButton"),
+  myAttendanceButton: document.querySelector("#myAttendanceButton"),
   currentPasswordInput: document.querySelector("#currentPasswordInput"),
   newPasswordInput: document.querySelector("#newPasswordInput"),
   changePasswordButton: document.querySelector("#changePasswordButton"),
@@ -23,6 +30,7 @@ const elements = {
 
 let currentUser = null;
 let onlyMyAttendance = false;
+let currentCalendarData = null;
 
 function getTodayMonth() {
   const now = new Date();
@@ -94,12 +102,17 @@ async function checkSession() {
 }
 
 async function loadDashboard() {
-  hideMessage();
   elements.loginPanel.classList.add("hidden");
   elements.summaryPanel.classList.remove("hidden");
   elements.passwordPanel.classList.add("hidden");
   elements.calendarPanel.classList.remove("hidden");
-  await Promise.all([loadSummary(), loadCalendar()]);
+  try {
+    hideMessage();
+    const calendarPayload = await loadCalendar();
+    await loadSummary(calendarPayload.data);
+  } catch (error) {
+    showMessage(`데이터를 불러오지 못했습니다. ${error.message} 새로고침하거나 잠시 후 다시 시도해 주세요.`, "error");
+  }
 }
 
 function togglePasswordPanel() {
@@ -123,7 +136,7 @@ async function changeOwnPassword() {
   }
 }
 
-async function loadSummary() {
+async function loadSummary(calendarData = null) {
   const month = elements.monthInput.value;
   const payload = await api(`/api/me/monthly-summary?month=${encodeURIComponent(month)}`);
   const summary = payload.summary;
@@ -133,37 +146,68 @@ async function loadSummary() {
     return;
   }
 
-  elements.summaryTitle.textContent = `${summary.name} ${payload.month} 요약`;
-  elements.summaryCards.innerHTML = [
-    ["OT 총 합계", summary.totalOt],
-    ["OT 한 시간", summary.otEarned],
-    ["OT 사용", summary.otUsed],
-    ["nightOt", summary.nightOt],
-    ["holidayOt", summary.holidayOt],
-    ["flexOt", summary.flexOt],
-    ["연차", summary.annualLeaveCount],
-    ["전반/후반", `${summary.morningHalfCount}/${summary.afternoonHalfCount}`]
-  ].map(([label, value]) => `
+  const data = calendarData || currentCalendarData;
+  const viewerEmployeeId = String(currentUser.employeeId || "");
+  const earlyOtCount = data?.records.filter(record => record.needsOt &&
+    [record.mriEmployeeId, record.xrayEmployeeId].some(id => String(id || "") === viewerEmployeeId)).length || 0;
+  const nightCount = data?.records.filter(record =>
+    [record.nightMriEmployeeId, record.nightXrayEmployeeId].some(id => String(id || "") === viewerEmployeeId)).length || 0;
+  const saturdayWorkCount = data?.attendanceRecords.filter(record =>
+    String(record.employeeId || "") === viewerEmployeeId &&
+    new Date(`${record.date}T00:00:00`).getDay() === 6 &&
+    record.off !== "토요일OFF" && Number(record.holidayOt || 0) > 0).length || 0;
+
+  elements.summaryTitle.textContent = "월간 근태 요약";
+  elements.summaryCards.innerHTML = `
+    <div class="summary-group summary-combined-group">
+      ${[
+        ["조출", `${earlyOtCount}회`],
+        ["야간", `${nightCount}회`],
+        ["토요일", `${saturdayWorkCount}회`],
+        ["총 OT", `${formatValue(summary.totalOt)}시간`],
+        ["야간 OT", `${formatValue(summary.nightOt)}시간`]
+      ].map(([label, value]) => renderSummaryCard(label, value)).join("")}
+    </div>
+  `;
+}
+
+function renderSummaryCard(label, value) {
+  return `
     <article class="summary-card">
       <span>${label}</span>
-      <strong>${formatValue(value)}</strong>
+      <strong>${escapeHtml(value)}</strong>
     </article>
-  `).join("");
+  `;
 }
 
 async function loadCalendar() {
   const month = elements.monthInput.value;
-  const payload = await api(`/api/calendar?month=${encodeURIComponent(month)}`);
-  renderCalendar(payload.month, payload.data, payload.viewerEmployeeId);
+  elements.calendarLoading.classList.remove("hidden");
+  elements.calendarGrid.classList.add("is-loading");
+  elements.reloadButton.disabled = true;
+  try {
+    const payload = await api(`/api/calendar?month=${encodeURIComponent(month)}`);
+    currentCalendarData = payload.data;
+    renderCalendar(payload.month, payload.data, payload.viewerEmployeeId);
+    elements.lastUpdatedText.textContent = `마지막 갱신 ${new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" }).format(new Date())}`;
+    return payload;
+  } finally {
+    elements.calendarLoading.classList.add("hidden");
+    elements.calendarGrid.classList.remove("is-loading");
+    elements.reloadButton.disabled = false;
+  }
 }
 
 function renderCalendar(month, data, viewerEmployeeId) {
   const [year, monthNumber] = month.split("-").map(Number);
   const firstDate = new Date(year, monthNumber - 1, 1);
   const lastDate = new Date(year, monthNumber, 0);
+  const today = new Date();
+  const todayText = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   const cells = [];
 
   elements.calendarTitle.textContent = `${year}년 ${monthNumber}월 근무 달력`;
+  updateAttendanceModeButtons();
 
   for (let index = 0; index < firstDate.getDay(); index += 1) {
     cells.push(`<div class="calendar-day is-empty"></div>`);
@@ -171,11 +215,17 @@ function renderCalendar(month, data, viewerEmployeeId) {
 
   for (let day = 1; day <= lastDate.getDate(); day += 1) {
     const dateText = `${year}-${String(monthNumber).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const weekday = new Date(year, monthNumber - 1, day).getDay();
     const dayContent = buildCalendarDayContent(dateText, data, viewerEmployeeId, onlyMyAttendance);
     const hasData = dayContent.otText || dayContent.middleText || dayContent.nightText;
+    const dayClasses = ["calendar-day"];
+    if (hasData) dayClasses.push("has-data");
+    if (dateText === todayText) dayClasses.push("is-today");
+    if (weekday === 0) dayClasses.push("is-sunday");
+    if (weekday === 6) dayClasses.push("is-saturday");
     cells.push(`
-      <div class="calendar-day ${hasData ? "has-data" : ""}">
-        <div class="calendar-day-number">${day}</div>
+      <div class="${dayClasses.join(" ")}">
+        <div class="calendar-day-watermark" aria-hidden="true">${day}</div>
         <div class="calendar-day-info">
           <span class="${dayContent.otText ? "calendar-day-note" : "calendar-day-note-empty"}">${escapeHtml(dayContent.otText || "-")}</span>
           <span class="${dayContent.middleText ? "calendar-day-note calendar-day-note-off" : "calendar-day-note-empty"}">${escapeHtml(dayContent.middleText || "-")}</span>
@@ -188,6 +238,45 @@ function renderCalendar(month, data, viewerEmployeeId) {
   elements.calendarGrid.innerHTML = cells.join("");
 }
 
+function updateAttendanceModeButtons() {
+  elements.allAttendanceButton.classList.toggle("primary", !onlyMyAttendance);
+  elements.myAttendanceButton.classList.toggle("primary", onlyMyAttendance);
+  elements.allAttendanceButton.setAttribute("aria-pressed", String(!onlyMyAttendance));
+  elements.myAttendanceButton.setAttribute("aria-pressed", String(onlyMyAttendance));
+}
+
+function setAttendanceMode(mineOnly, focusButton = false) {
+  onlyMyAttendance = mineOnly;
+  updateAttendanceModeButtons();
+  if (focusButton) {
+    (mineOnly ? elements.myAttendanceButton : elements.allAttendanceButton).focus();
+  }
+  loadCalendar();
+}
+
+function handleAttendanceModeKeydown(event) {
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    setAttendanceMode(false, true);
+  }
+  if (event.key === "ArrowRight") {
+    event.preventDefault();
+    setAttendanceMode(true, true);
+  }
+}
+
+function shiftMonth(offset) {
+  const [year, month] = elements.monthInput.value.split("-").map(Number);
+  const target = new Date(year, month - 1 + offset, 1);
+  elements.monthInput.value = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}`;
+  loadDashboard();
+}
+
+function goToToday() {
+  elements.monthInput.value = getTodayMonth();
+  loadDashboard();
+}
+
 function buildCalendarDayContent(dateText, data, viewerEmployeeId, mineOnly = false) {
   const record = data.records.find(item => item.date === dateText);
   const dayAttendanceRecords = data.attendanceRecords.filter(item => item.date === dateText);
@@ -196,7 +285,7 @@ function buildCalendarDayContent(dateText, data, viewerEmployeeId, mineOnly = fa
     : dayAttendanceRecords;
   const isMine = employeeId => String(employeeId || "") === String(viewerEmployeeId || "");
   const otText = record?.needsOt && (!mineOnly || isMine(record.mriEmployeeId) || isMine(record.xrayEmployeeId))
-    ? `OT: ${mineOnly
+    ? `조: ${mineOnly
       ? [record.mriEmployeeId, record.xrayEmployeeId]
         .filter(isMine)
         .map(employeeId => formatOwnAssignment(attendanceRecords, employeeId, viewerEmployeeId, "otEarned"))
@@ -205,7 +294,7 @@ function buildCalendarDayContent(dateText, data, viewerEmployeeId, mineOnly = fa
     : "";
   const nightText = (record?.nightMriEmployeeId || record?.nightXrayEmployeeId) &&
     (!mineOnly || isMine(record.nightMriEmployeeId) || isMine(record.nightXrayEmployeeId))
-    ? `야간: ${mineOnly
+    ? `야: ${mineOnly
       ? [record.nightMriEmployeeId, record.nightXrayEmployeeId]
         .filter(isMine)
         .map(employeeId => formatOwnAssignment(attendanceRecords, employeeId, viewerEmployeeId, "nightOt"))
@@ -314,16 +403,21 @@ function escapeHtml(value) {
 }
 
 elements.monthInput.value = getTodayMonth();
-elements.loginButton.addEventListener("click", login);
+elements.loginForm.addEventListener("submit", event => {
+  event.preventDefault();
+  login();
+});
 elements.logoutButton.addEventListener("click", logout);
 elements.changePasswordToggleButton.addEventListener("click", togglePasswordPanel);
 elements.changePasswordButton.addEventListener("click", changeOwnPassword);
 elements.reloadButton.addEventListener("click", loadDashboard);
 elements.monthInput.addEventListener("change", loadDashboard);
-elements.myAttendanceToggleButton.addEventListener("click", () => {
-  onlyMyAttendance = !onlyMyAttendance;
-  elements.myAttendanceToggleButton.textContent = onlyMyAttendance ? "전체 근무 보기" : "내 근태 보기";
-  loadCalendar();
-});
+elements.previousMonthButton.addEventListener("click", () => shiftMonth(-1));
+elements.todayMonthButton.addEventListener("click", goToToday);
+elements.nextMonthButton.addEventListener("click", () => shiftMonth(1));
+elements.allAttendanceButton.addEventListener("click", () => setAttendanceMode(false));
+elements.myAttendanceButton.addEventListener("click", () => setAttendanceMode(true));
+elements.allAttendanceButton.addEventListener("keydown", handleAttendanceModeKeydown);
+elements.myAttendanceButton.addEventListener("keydown", handleAttendanceModeKeydown);
 
 checkSession();

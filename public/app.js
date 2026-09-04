@@ -77,6 +77,12 @@ let serverAutoSyncTimer = null;
 let serverSyncVersion = null;
 let adminEmployeeId = "";
 let adminOnlyMyAttendance = false;
+let activeInputSection = "";
+let saturdayOffPopupOpen = false;
+let dateMemoPopupOpen = false;
+let dateMemos = {};
+let savedDateFlashDates = new Set();
+let savedDateFlashTimer = null;
 const selectedAnnualLeaveDates = new Set();
 
 const elements = {
@@ -87,16 +93,12 @@ const elements = {
   adminGateLoginButton: document.querySelector("#adminGateLoginButton"),
   adminGateMessage: document.querySelector("#adminGateMessage"),
   selectedDateInput: document.querySelector("#selectedDateInput"),
-  selectedDateDisplay: document.querySelector("#selectedDateDisplay"),
-  selectedWeekday: document.querySelector("#selectedWeekday"),
   previousMonthButton: document.querySelector("#previousMonthButton"),
   nextMonthButton: document.querySelector("#nextMonthButton"),
   calendarMonthLabel: document.querySelector("#calendarMonthLabel"),
   adminMyAttendanceToggleButton: document.querySelector("#adminMyAttendanceToggleButton"),
   calendarGrid: document.querySelector("#calendarGrid"),
-  showOtInputButton: document.querySelector("#showOtInputButton"),
-  showNightInputButton: document.querySelector("#showNightInputButton"),
-  showAttendanceInputButton: document.querySelector("#showAttendanceInputButton"),
+  dateInputMenu: document.querySelector("#dateInputMenu"),
   otInputSection: document.querySelector("#otInputSection"),
   nightInputSection: document.querySelector("#nightInputSection"),
   attendanceInputSection: document.querySelector("#attendanceInputSection"),
@@ -125,7 +127,10 @@ const elements = {
   nightXraySelect: document.querySelector("#nightXraySelect"),
   nightMriOtInput: document.querySelector("#nightMriOtInput"),
   nightXrayOtInput: document.querySelector("#nightXrayOtInput"),
-  recordMemoInput: document.querySelector("#recordMemoInput"),
+  dateMemoPopup: document.querySelector("#dateMemoPopup"),
+  dateMemoInput: document.querySelector("#dateMemoInput"),
+  closeDateMemoButton: document.querySelector("#closeDateMemoButton"),
+  saveDateMemoButton: document.querySelector("#saveDateMemoButton"),
   attendanceNameSelect: document.querySelector("#attendanceNameSelect"),
   attendanceOtInput: document.querySelector("#attendanceOtInput"),
   attendanceOtUsedInput: document.querySelector("#attendanceOtUsedInput"),
@@ -136,6 +141,7 @@ const elements = {
   attendanceFlexReasonInput: document.querySelector("#attendanceFlexReasonInput"),
   attendanceOffSelect: document.querySelector("#attendanceOffSelect"),
   annualLeaveBox: document.querySelector("#annualLeaveBox"),
+  annualLeaveCalendar: document.querySelector("#annualLeaveCalendar"),
   annualLeaveSelectionSummary: document.querySelector("#annualLeaveSelectionSummary"),
   annualLeaveMemoInput: document.querySelector("#annualLeaveMemoInput"),
   attendanceManualNoteInput: document.querySelector("#attendanceManualNoteInput"),
@@ -145,8 +151,10 @@ const elements = {
   saveSaturdayOffButton: document.querySelector("#saveSaturdayOffButton"),
   saveAttendanceButton: document.querySelector("#saveAttendanceButton"),
   resetAttendanceButton: document.querySelector("#resetAttendanceButton"),
-  confirmRecordButton: document.querySelector("#confirmRecordButton"),
-  resetFormButton: document.querySelector("#resetFormButton"),
+  saveOtRecordButton: document.querySelector("#saveOtRecordButton"),
+  resetOtRecordButton: document.querySelector("#resetOtRecordButton"),
+  saveNightRecordButton: document.querySelector("#saveNightRecordButton"),
+  resetNightRecordButton: document.querySelector("#resetNightRecordButton"),
   fairnessStatus: document.querySelector("#fairnessStatus"),
   monthlySummaryBody: document.querySelector("#monthlySummaryBody"),
   employeeForm: document.querySelector("#employeeForm"),
@@ -256,6 +264,26 @@ function hideMessage() {
   elements.messageBox.classList.add("hidden");
 }
 
+function moveFeedbackToPopup(sectionName) {
+  const popupMap = {
+    ot: elements.otInputSection,
+    night: elements.nightInputSection,
+    attendance: elements.attendanceInputSection,
+    "saturday-off": elements.saturdayOffBox
+  };
+  const target = popupMap[sectionName];
+  if (!target) return;
+  target.append(elements.messageBox, elements.warningBox);
+}
+
+function closeInputPopups() {
+  setInputSectionVisibility("");
+  closeDateMemoPopup();
+  saturdayOffPopupOpen = false;
+  updateSaturdayOffButtonState();
+  document.querySelector(".main-panel").append(elements.messageBox, elements.warningBox);
+}
+
 function setWarnings(warnings) {
   if (!warnings.length) {
     elements.warningBox.classList.add("hidden");
@@ -286,10 +314,17 @@ function createInitialData() {
 }
 
 function normalizeData(data) {
+  const employees = Array.isArray(data.employees) ? data.employees.map(normalizeEmployee) : [];
+  const employeeIdByName = new Map(employees.map(employee => [employee.name, employee.id]));
   return {
-    employees: Array.isArray(data.employees) ? data.employees.map(normalizeEmployee) : [],
+    employees,
     records: Array.isArray(data.records) ? data.records.map(normalizeRecord) : [],
-    attendanceRecords: Array.isArray(data.attendanceRecords) ? data.attendanceRecords.map(normalizeAttendanceRecord) : [],
+    attendanceRecords: Array.isArray(data.attendanceRecords)
+      ? data.attendanceRecords.map(record => normalizeAttendanceRecord({
+        ...record,
+        employeeId: record.employeeId || employeeIdByName.get(record.name) || ""
+      }))
+      : [],
     exceptions: Array.isArray(data.exceptions) ? data.exceptions : [],
     settings: { ...defaultSettings, ...(data.settings || {}) }
   };
@@ -317,6 +352,7 @@ function normalizeEmployee(employee) {
 
 function normalizeRecord(record) {
   return {
+    employeeId: record.employeeId ? String(record.employeeId) : "",
     date: record.date || "",
     needsOt: Boolean(record.needsOt),
     mriEmployeeId: record.mriEmployeeId || "",
@@ -481,6 +517,7 @@ function normalizeAttendanceRecord(record) {
 
   return {
     date: record.date || "",
+    employeeId: record.employeeId ? String(record.employeeId) : "",
     name: record.name || "",
     ot: otTotal,
     otEarned: otParts.otEarned,
@@ -509,6 +546,19 @@ function validateImportedData(data) {
 
 function loadData() {
   appData = createInitialData();
+  try {
+    const savedDateMemos = JSON.parse(localStorage.getItem("radiology-work-date-memos") || "{}");
+    dateMemos = savedDateMemos && typeof savedDateMemos === "object" ? savedDateMemos : {};
+  } catch (error) {
+    dateMemos = {};
+  }
+}
+
+function saveDateMemos() {
+  return serverRequest("/api/admin/date-memos", {
+    method: "POST",
+    body: JSON.stringify({ date: elements.selectedDateInput.value, memo: dateMemos[elements.selectedDateInput.value] || "" })
+  });
 }
 
 function saveData(options = {}) {
@@ -579,7 +629,7 @@ function getEligibleEmployees(dateText) {
 }
 
 function getAttendanceRecordForEmployee(dateText, employee) {
-  return appData.attendanceRecords.find(record => record.date === dateText && record.name === employee.name);
+  return getAttendanceRecord(dateText, employee.id);
 }
 
 function isEmployeeExcludedFromOtRecommendation(employee, dateText) {
@@ -624,6 +674,8 @@ function buildEmployeeStats(monthKey) {
       total: 0,
       mri: 0,
       xray: 0,
+      night: 0,
+      saturdayWork: 0,
       lastDate: "",
       consecutive: false
     });
@@ -645,6 +697,22 @@ function buildEmployeeStats(monthKey) {
       item.lastDate = record.date;
     });
   });
+
+  appData.records
+    .filter(record => record.date.startsWith(monthKey) && (record.nightMriEmployeeId || record.nightXrayEmployeeId))
+    .forEach(record => {
+      [record.nightMriEmployeeId, record.nightXrayEmployeeId].forEach(employeeId => {
+        if (!employeeId || !stats.has(employeeId)) return;
+        stats.get(employeeId).night += 1;
+      });
+    });
+
+  appData.attendanceRecords
+    .filter(record => record.date.startsWith(monthKey) && getWeekday(record.date) === 6 &&
+      record.off !== "토요일OFF" && Number(record.holidayOt || 0) > 0)
+    .forEach(record => {
+      if (stats.has(record.employeeId)) stats.get(record.employeeId).saturdayWork += 1;
+    });
 
   return stats;
 }
@@ -980,7 +1048,7 @@ function renderEmployeeOptions() {
   elements.nightMriSelect.innerHTML = `<option value="">선택 없음</option>${nightMriOptionHtml}`;
   elements.nightXraySelect.innerHTML = `<option value="">선택 없음</option>${nightOptionHtml}`;
   elements.attendanceNameSelect.innerHTML = `<option value="">직원 선택</option>${activeEmployees
-    .map(employee => `<option value="${escapeHtml(employee.name)}">${escapeHtml(employee.name)}</option>`)
+    .map(employee => `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.name)}</option>`)
     .join("")}`;
   const saturdayOffNames = new Set(getSaturdayOffRecords(selectedDate).map(record => record.name));
   elements.saturdayOffList.innerHTML = activeEmployees.length
@@ -996,7 +1064,9 @@ function renderEmployeeOptions() {
 
 function updateSaturdayOffButtonState() {
   const hasSelectedEmployee = Boolean(elements.attendanceNameSelect.value);
-  elements.saturdayOffBox.classList.toggle("hidden", hasSelectedEmployee);
+  const available = getWeekday(elements.selectedDateInput.value) === 6 && !hasSelectedEmployee;
+  elements.saturdayOffBox.classList.toggle("hidden", !available || !saturdayOffPopupOpen);
+  elements.saturdayOffBox.classList.toggle("is-popup", available && saturdayOffPopupOpen);
 }
 
 function refreshOtRoleOptions() {
@@ -1069,8 +1139,8 @@ function renderAttendanceRecords() {
       <td>${escapeHtml(record.off)}</td>
       <td>${escapeHtml(record.note)}</td>
       <td>
-        <button class="small-button" data-action="edit-attendance" data-date="${escapeHtml(record.date)}" data-name="${escapeHtml(record.name)}">수정</button>
-        <button class="small-button" data-action="delete-attendance" data-date="${escapeHtml(record.date)}" data-name="${escapeHtml(record.name)}">삭제</button>
+        <button class="small-button" data-action="edit-attendance" data-date="${escapeHtml(record.date)}" data-employee-id="${escapeHtml(record.employeeId)}">수정</button>
+        <button class="small-button" data-action="delete-attendance" data-date="${escapeHtml(record.date)}" data-employee-id="${escapeHtml(record.employeeId)}">삭제</button>
       </td>
     </tr>
   `).join("");
@@ -1081,10 +1151,13 @@ function getSaturdayOffRecords(dateText) {
 }
 
 function buildCalendarMiddleText(dateText, employeeId = "") {
-  const employeeName = employeeId ? getEmployeeName(employeeId) : "";
+  const workRecord = appData.records.find(record => record.date === dateText);
+  const topOtEmployeeIds = new Set(workRecord?.needsOt
+    ? [workRecord.mriEmployeeId, workRecord.xrayEmployeeId].filter(Boolean)
+    : []);
   const dateAttendanceRecords = appData.attendanceRecords
     .filter(record => record.date === dateText)
-    .filter(record => !employeeId || record.name === employeeName);
+    .filter(record => !employeeId || record.employeeId === employeeId);
   const saturdayOffNames = dateAttendanceRecords
     .filter(record => record.off === "토요일OFF")
     .map(record => getGivenNameOnlyByName(record.name));
@@ -1094,6 +1167,9 @@ function buildCalendarMiddleText(dateText, employeeId = "") {
       const name = getGivenNameOnlyByName(record.name);
       const details = [];
       if (record.off) details.push(getShortOffLabel(record.off));
+      if (record.otEarned !== 0 && !topOtEmployeeIds.has(record.employeeId)) {
+        details.push(`OT ${record.otEarned}`);
+      }
       if (record.otUsed < 0) details.push(`OT ${record.otUsed}`);
       if (record.flexOt < 0) details.push(`탄력 ${record.flexOt}`);
       return details.length ? (employeeId ? details.join(" ") : `${name} ${details.join(" ")}`) : "";
@@ -1125,7 +1201,7 @@ function buildCalendarTooltipText(dateText, record, middleText, missingWorkTime,
 
   const attendanceLines = appData.attendanceRecords
     .filter(attendanceRecord => attendanceRecord.date === dateText)
-    .filter(attendanceRecord => !employeeId || attendanceRecord.name === getEmployeeName(employeeId))
+    .filter(attendanceRecord => !employeeId || attendanceRecord.employeeId === employeeId)
     .map(attendanceRecord => buildAttendanceTooltipLine(attendanceRecord, Boolean(employeeId)))
     .filter(Boolean);
 
@@ -1165,6 +1241,7 @@ function buildAttendanceTooltipLine(record, mineOnly = false) {
   if (record.holidayOt !== 0) details.push(`휴일 ${record.holidayOt}`);
   const manualNote = stripAutoOtNotePrefix(record.note);
   if (manualNote) details.push(manualNote);
+  if (hasAttendanceConflict(record)) details.push("휴무와 근태 중복");
 
   return details.length ? (mineOnly ? details.join(" ") : `${name} ${details.join(" ")}`) : "";
 }
@@ -1208,7 +1285,7 @@ function getOwnAssignmentIds(record, employeeId) {
 }
 
 function formatOwnCalendarAssignment(dateText, employeeId, fieldName) {
-  const attendance = getAttendanceRecord(dateText, getEmployeeName(employeeId));
+  const attendance = getAttendanceRecord(dateText, employeeId);
   const value = Number(attendance?.[fieldName] || 0);
   return value > 0 ? formatNumberForNote(value) : "있음";
 }
@@ -1216,9 +1293,8 @@ function formatOwnCalendarAssignment(dateText, employeeId, fieldName) {
 function hasCalendarDataForEmployee(dateText, record, employeeId) {
   if (!employeeId) return false;
   const ownAssignment = getOwnAssignmentIds(record, employeeId);
-  const ownName = getEmployeeName(employeeId);
   return ownAssignment.ot.length > 0 || ownAssignment.night.length > 0 ||
-    appData.attendanceRecords.some(item => item.date === dateText && item.name === ownName);
+    appData.attendanceRecords.some(item => item.date === dateText && item.employeeId === employeeId);
 }
 
 function getShortOffLabel(offText) {
@@ -1231,15 +1307,15 @@ function renderMonthlySummary() {
   const monthKey = getMonthKey(elements.selectedDateInput.value);
   const stats = buildEmployeeStats(monthKey);
   const rows = [...stats.values()]
-    .filter(item => isEmployeeRelevantForMonth(item.employee, monthKey) || item.total > 0)
-    .sort((a, b) => b.total - a.total || a.employee.name.localeCompare(b.employee.name, "ko"));
+    .filter(item => isEmployeeRelevantForMonth(item.employee, monthKey) || item.total > 0 || item.night > 0 || item.saturdayWork > 0)
+    .sort((a, b) => b.total - a.total || b.night - a.night || a.employee.name.localeCompare(b.employee.name, "ko"));
 
   elements.monthlySummaryBody.innerHTML = rows.map(item => `
     <tr>
       <td>${escapeHtml(item.employee.name)}</td>
       <td>${item.total}</td>
-      <td>${item.mri}</td>
-      <td>${item.xray}</td>
+      <td>${item.night}</td>
+      <td>${item.saturdayWork}</td>
     </tr>
   `).join("");
 }
@@ -1262,7 +1338,7 @@ function renderCalendar() {
   const recordDates = new Set();
 
   elements.calendarMonthLabel.textContent = `${year}년 ${month}월`;
-  elements.selectedDateDisplay.value = formatKoreanDate(selectedDate);
+  updateInputDateContexts();
 
   const cells = [];
   for (let index = 0; index < firstWeekday; index += 1) {
@@ -1276,6 +1352,7 @@ function renderCalendar() {
     if (dateText === selectedDate) classes.push("is-selected");
     if (selectedAnnualLeaveDates.has(dateText)) classes.push("is-annual-selected");
     if (dateText === todayText) classes.push("is-today");
+    if (savedDateFlashDates.has(dateText)) classes.push("just-saved");
     if (weekday === 0) classes.push("is-sunday");
     if (weekday === 6) classes.push("is-saturday");
 
@@ -1291,7 +1368,7 @@ function renderCalendar() {
       recordDates.add(dateText);
     }
     if (recordDates.has(dateText)) classes.push("has-record");
-    if (appData.attendanceRecords.some(item => item.date === dateText && (!adminOnlyMyAttendance || item.name === getEmployeeName(adminEmployeeId)) && hasAttendanceConflict(item))) {
+    if (appData.attendanceRecords.some(item => item.date === dateText && (!adminOnlyMyAttendance || item.employeeId === adminEmployeeId) && hasAttendanceConflict(item))) {
       classes.push("has-attendance-conflict");
     }
     const otText = record?.needsOt && (!adminOnlyMyAttendance || ownAssignment.ot.length)
@@ -1307,9 +1384,11 @@ function renderCalendar() {
       : "";
     const middleText = buildCalendarMiddleText(dateText, adminOnlyMyAttendance ? adminEmployeeId : "");
     const dayTooltipText = buildCalendarTooltipText(dateText, record, middleText, missingWorkTime, adminOnlyMyAttendance ? adminEmployeeId : "");
+    const hasDateMemo = Boolean(dateMemos[dateText]?.trim());
     cells.push(`
       <button class="${classes.join(" ")}" type="button" data-date="${dateText}">
-        <span class="calendar-day-number">${day}</span>
+        <span class="calendar-day-watermark" aria-hidden="true">${day}</span>
+        ${hasDateMemo ? '<span class="calendar-day-memo-icon" data-date-memo aria-label="메모 있음" title="메모 있음"></span>' : ""}
         <span class="calendar-day-info">
           <span class="${otText ? "calendar-day-note" : "calendar-day-note-empty"}" data-tooltip="${escapeHtml(dayTooltipText)}">${escapeHtml(otText || "-")}</span>
           <span class="${middleText ? "calendar-day-note calendar-day-note-off" : "calendar-day-note-empty"}" data-tooltip="${escapeHtml(dayTooltipText)}">${escapeHtml(middleText || "-")}</span>
@@ -1362,8 +1441,24 @@ function hideCalendarTooltip() {
   calendarTooltipElement.classList.add("hidden");
 }
 
+function updateInputDateContexts() {
+  const selectedDateText = formatKoreanDate(elements.selectedDateInput.value);
+  document.querySelectorAll("[data-input-date]").forEach(element => {
+    element.textContent = selectedDateText;
+  });
+}
+
+function flashSavedDates(dates) {
+  savedDateFlashDates = new Set(dates);
+  renderCalendar();
+  clearTimeout(savedDateFlashTimer);
+  savedDateFlashTimer = setTimeout(() => {
+    savedDateFlashDates.clear();
+    renderCalendar();
+  }, 1400);
+}
+
 function renderAll() {
-  elements.selectedWeekday.textContent = weekdayNames[getWeekday(elements.selectedDateInput.value)];
   renderCalendar();
   renderEmployeeOptions();
   renderEmployees();
@@ -1403,12 +1498,12 @@ function resetRecommendationView() {
   elements.nightXraySelect.value = "";
   elements.nightMriOtInput.value = "";
   elements.nightXrayOtInput.value = "";
-  elements.recordMemoInput.value = "";
   setWarnings([]);
   hideMessage();
 }
 
 function resetAttendanceForm(keepName = false) {
+  saturdayOffPopupOpen = false;
   if (!keepName) {
     elements.attendanceNameSelect.value = "";
   }
@@ -1437,7 +1532,35 @@ function updateAnnualLeaveView() {
   elements.annualLeaveSelectionSummary.textContent = dates.length
     ? `${dates.length}일 선택됨: ${dates.join(", ")}`
     : "달력에서 연차를 사용할 날짜를 하나씩 선택해 주세요.";
+  renderAnnualLeaveCalendar();
   renderCalendar();
+}
+
+function renderAnnualLeaveCalendar() {
+  const selectedDate = elements.selectedDateInput.value;
+  const [year, month] = selectedDate.split("-").map(Number);
+  const firstDate = new Date(year, month - 1, 1);
+  const lastDate = new Date(year, month, 0);
+  const firstWeekday = firstDate.getDay();
+  const cells = [];
+
+  cells.push(`<div class="annual-leave-calendar-header"><strong>${year}년 ${month}월</strong></div>`);
+  cells.push('<div class="annual-leave-calendar-grid">');
+  ["일", "월", "화", "수", "목", "금", "토"].forEach(dayName => {
+    cells.push(`<span class="annual-leave-calendar-weekday">${dayName}</span>`);
+  });
+  for (let index = 0; index < firstWeekday; index += 1) {
+    cells.push('<span class="annual-leave-calendar-day is-empty"></span>');
+  }
+  for (let day = 1; day <= lastDate.getDate(); day += 1) {
+    const dateText = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const classes = ["annual-leave-calendar-day"];
+    if (selectedAnnualLeaveDates.has(dateText)) classes.push("is-selected");
+    if (dateText === selectedDate) classes.push("is-current");
+    cells.push(`<button class="${classes.join(" ")}" type="button" data-annual-date="${dateText}">${day}</button>`);
+  }
+  cells.push("</div>");
+  elements.annualLeaveCalendar.innerHTML = cells.join("");
 }
 
 function handleAttendanceOffChange() {
@@ -1448,12 +1571,48 @@ function handleAttendanceOffChange() {
 }
 
 function setInputSectionVisibility(sectionName) {
-  elements.otInputSection.classList.toggle("hidden", sectionName !== "ot");
-  elements.nightInputSection.classList.toggle("hidden", sectionName !== "night");
-  elements.attendanceInputSection.classList.toggle("hidden", sectionName !== "attendance");
-  elements.showOtInputButton.classList.toggle("is-active-mode", sectionName === "ot");
-  elements.showNightInputButton.classList.toggle("is-active-mode", sectionName === "night");
-  elements.showAttendanceInputButton.classList.toggle("is-active-mode", sectionName === "attendance");
+  const nextSection = sectionName || "";
+  elements.otInputSection.classList.toggle("hidden", nextSection !== "ot");
+  elements.nightInputSection.classList.toggle("hidden", nextSection !== "night");
+  elements.attendanceInputSection.classList.toggle("hidden", nextSection !== "attendance");
+  moveFeedbackToPopup(nextSection);
+}
+
+function closeDateInputMenu() {
+  elements.dateInputMenu.classList.add("hidden");
+}
+
+function closeDateMemoPopup() {
+  dateMemoPopupOpen = false;
+  elements.dateMemoPopup.classList.add("hidden");
+}
+
+function openDateMemoPopup() {
+  elements.dateMemoInput.value = dateMemos[elements.selectedDateInput.value] || "";
+  dateMemoPopupOpen = true;
+  elements.dateMemoPopup.classList.remove("hidden");
+  elements.dateMemoInput.focus();
+}
+
+function focusFirstInput(selector) {
+  document.querySelector(`${selector} input:not([type="hidden"]), ${selector} select, ${selector} textarea`)?.focus();
+}
+
+function openDateInputMenu(event) {
+  const menu = elements.dateInputMenu;
+  const saturdayMenuItem = menu.querySelector('[data-input-section="saturday-off"]');
+  const isSaturday = getWeekday(elements.selectedDateInput.value) === 6;
+  saturdayMenuItem.classList.toggle("hidden", !isSaturday || Boolean(elements.attendanceNameSelect.value));
+
+  menu.classList.remove("hidden");
+  const menuRect = menu.getBoundingClientRect();
+  const margin = 8;
+  const left = Math.min(event.clientX + margin, window.innerWidth - menuRect.width - margin);
+  const top = event.clientY + margin + menuRect.height <= window.innerHeight
+    ? event.clientY + margin
+    : Math.max(margin, event.clientY - menuRect.height - margin);
+  menu.style.left = `${Math.max(margin, left)}px`;
+  menu.style.top = `${top}px`;
 }
 
 function loadSelectedRecordIntoForm() {
@@ -1464,7 +1623,6 @@ function loadSelectedRecordIntoForm() {
   refreshOtRoleOptions();
   elements.nightMriSelect.value = record?.nightMriEmployeeId || "";
   elements.nightXraySelect.value = record?.nightXrayEmployeeId || "";
-  elements.recordMemoInput.value = record?.memo || "";
   elements.manualMriOtInput.value = "";
   elements.manualXrayOtInput.value = "";
   elements.nightMriOtInput.value = "";
@@ -1503,8 +1661,13 @@ function loadSelectedRecordIntoForm() {
   setWarnings([]);
 }
 
-function getAttendanceRecord(date, name) {
-  return appData.attendanceRecords.find(record => record.date === date && record.name === name);
+function getAttendanceRecord(date, employeeIdOrName) {
+  const employeeId = typeof employeeIdOrName === "object"
+    ? employeeIdOrName?.id
+    : appData.employees.find(employee => employee.name === employeeIdOrName)?.id || employeeIdOrName;
+  return appData.attendanceRecords.find(record => record.date === date && (
+    record.employeeId === employeeId || (!record.employeeId && record.name === employeeIdOrName)
+  ));
 }
 
 function hasAttendanceConflict(record) {
@@ -1519,7 +1682,7 @@ function upsertAttendanceTime(date, employeeId, fieldName, value) {
   const name = getEmployeeName(employeeId);
   if (!name || name === "-") return;
 
-  const existingRecord = getAttendanceRecord(date, name) || normalizeAttendanceRecord({ date, name });
+  const existingRecord = getAttendanceRecord(date, employeeId) || normalizeAttendanceRecord({ date, employeeId, name });
   const updates = fieldName === "ot"
     ? { otEarned: toNumberOrZero(value) }
     : { [fieldName]: toNumberOrZero(value) };
@@ -1528,14 +1691,15 @@ function upsertAttendanceTime(date, employeeId, fieldName, value) {
     ...updates
   });
 
-  appData.attendanceRecords = appData.attendanceRecords.filter(record => !(record.date === date && record.name === name));
+  appData.attendanceRecords = appData.attendanceRecords.filter(record => !(record.date === date && record.employeeId === employeeId));
   appData.attendanceRecords.push(updatedRecord);
 }
 
-function upsertAttendanceRecordByName(date, name, updates) {
-  if (!name) return;
+function upsertAttendanceRecordByEmployeeId(date, employeeId, updates) {
+  const name = getEmployeeName(employeeId);
+  if (!employeeId || !name || name === "-") return;
 
-  const existingRecord = getAttendanceRecord(date, name) || normalizeAttendanceRecord({ date, name });
+  const existingRecord = getAttendanceRecord(date, employeeId) || normalizeAttendanceRecord({ date, employeeId, name });
   const normalizedUpdates = { ...updates };
   if (Object.prototype.hasOwnProperty.call(normalizedUpdates, "otUsed")) {
     normalizedUpdates.otUsed = normalizeOtUsedValue(normalizedUpdates.otUsed);
@@ -1550,7 +1714,7 @@ function upsertAttendanceRecordByName(date, name, updates) {
     name
   });
 
-  appData.attendanceRecords = appData.attendanceRecords.filter(record => !(record.date === date && record.name === name));
+  appData.attendanceRecords = appData.attendanceRecords.filter(record => !(record.date === date && record.employeeId === employeeId));
   appData.attendanceRecords.push(updatedRecord);
 }
 
@@ -1584,23 +1748,28 @@ async function saveSaturdayOff() {
 
   activeEmployees.forEach(employee => {
     if (offEmployeeIdSet.has(employee.id)) {
-      upsertAttendanceRecordByName(date, employee.name, { off: "토요일OFF", holidayOt: 0 });
+      upsertAttendanceRecordByEmployeeId(date, employee.id, { off: "토요일OFF", holidayOt: 0 });
       return;
     }
 
     const existingRecord = getAttendanceRecord(date, employee.name);
     const nextOff = existingRecord?.off === "토요일OFF" ? "" : existingRecord?.off || "";
-    upsertAttendanceRecordByName(date, employee.name, { off: nextOff, holidayOt: 4 });
+      upsertAttendanceRecordByEmployeeId(date, employee.id, { off: nextOff, holidayOt: 4 });
   });
 
   await saveData();
   renderAll();
+  flashSavedDates([date]);
+  closeInputPopups();
   showMessage(`${date} 토요일 OFF ${offEmployees.length}명과 휴일근무 4시간을 저장했습니다.`);
 }
 
 function loadAttendanceRecordIntoForm(date, name) {
-  const record = appData.attendanceRecords.find(item => item.date === date && item.name === name);
-  elements.attendanceNameSelect.value = name || "";
+  const employeeId = typeof name === "object"
+    ? name?.id
+    : appData.employees.find(employee => employee.name === name)?.id || name;
+  const record = getAttendanceRecord(date, employeeId);
+  elements.attendanceNameSelect.value = employeeId || "";
   updateSaturdayOffButtonState();
 
   if (!record) {
@@ -1616,6 +1785,7 @@ function loadAttendanceRecordIntoForm(date, name) {
   elements.attendanceFlexUsedInput.value = record.flexUsed || "";
   elements.attendanceFlexReasonInput.value = record.flexReason || "";
   elements.attendanceOffSelect.value = record.off || "";
+  if (record.off === "연차") selectedAnnualLeaveDates.add(date);
   elements.attendanceManualNoteInput.value = record.manualNote !== undefined
     ? record.manualNote || ""
     : stripAutoOtNotePrefix(record.note || "");
@@ -1625,7 +1795,8 @@ function loadAttendanceRecordIntoForm(date, name) {
 
 async function saveAttendanceRecord() {
   const date = elements.selectedDateInput.value;
-  const name = elements.attendanceNameSelect.value;
+  const employeeId = elements.attendanceNameSelect.value;
+  const name = getEmployeeName(employeeId);
 
   if (!name) {
     showMessage("근태를 기록할 직원을 선택해 주세요.", "error");
@@ -1643,6 +1814,7 @@ async function saveAttendanceRecord() {
 
   const attendanceRecord = normalizeAttendanceRecord({
     date,
+    employeeId,
     name,
     otEarned: elements.attendanceOtInput.value,
     otUsed: normalizeOtUsedValue(elements.attendanceOtUsedInput.value),
@@ -1655,17 +1827,20 @@ async function saveAttendanceRecord() {
     manualNote: elements.attendanceManualNoteInput.value.trim()
   });
 
-  appData.attendanceRecords = appData.attendanceRecords.filter(record => !(record.date === date && record.name === name));
+  appData.attendanceRecords = appData.attendanceRecords.filter(record => !(record.date === date && record.employeeId === employeeId));
   appData.attendanceRecords.push(attendanceRecord);
 
   await saveData();
   renderAll();
   resetAttendanceForm(true);
+  flashSavedDates([date]);
+  closeInputPopups();
   showMessage(`${date} ${name} 근태 기록을 저장했습니다.`);
 }
 
 async function saveAnnualLeaveRecords() {
-  const name = elements.attendanceNameSelect.value;
+  const employeeId = elements.attendanceNameSelect.value;
+  const name = getEmployeeName(employeeId);
   const dates = Array.from(selectedAnnualLeaveDates).sort();
 
   if (!name) {
@@ -1687,7 +1862,7 @@ async function saveAnnualLeaveRecords() {
 
   const memo = elements.annualLeaveMemoInput.value.trim();
   dates.forEach(date => {
-    upsertAttendanceRecordByName(date, name, { off: "연차", manualNote: memo });
+    upsertAttendanceRecordByEmployeeId(date, employeeId, { off: "연차", manualNote: memo });
   });
 
   await saveData();
@@ -1695,13 +1870,16 @@ async function saveAnnualLeaveRecords() {
   renderAll();
   resetAttendanceForm(true);
   updateAnnualLeaveView();
+  flashSavedDates(dates);
+  closeInputPopups();
   showMessage(`${name}님의 연차 ${dates.length}일을 등록했습니다.`);
 }
 
-async function deleteAttendanceRecord(date, name) {
+async function deleteAttendanceRecord(date, employeeId) {
+  const name = getEmployeeName(employeeId);
   if (!window.confirm(`${date} ${name} 근태 기록을 삭제할까요?`)) return;
 
-  appData.attendanceRecords = appData.attendanceRecords.filter(record => !(record.date === date && record.name === name));
+  appData.attendanceRecords = appData.attendanceRecords.filter(record => !(record.date === date && record.employeeId === employeeId));
   await saveData();
   renderAll();
   resetAttendanceForm();
@@ -1784,8 +1962,7 @@ async function saveRecord() {
     mriEmployeeId: needsOt ? mriEmployeeId : "",
     xrayEmployeeId: needsOt ? xrayEmployeeId : "",
     nightMriEmployeeId,
-    nightXrayEmployeeId,
-    memo: elements.recordMemoInput.value.trim()
+    nightXrayEmployeeId
   });
 
   if (needsOt) {
@@ -1801,6 +1978,8 @@ async function saveRecord() {
   await saveData();
   renderAll();
   loadSelectedRecordIntoForm();
+  flashSavedDates([date]);
+  closeInputPopups();
   showMessage("기록이 저장되었습니다.");
 }
 
@@ -1853,7 +2032,6 @@ function editRecord(dateText) {
   elements.manualXraySelect.value = record.xrayEmployeeId || "";
   elements.nightMriSelect.value = record.nightMriEmployeeId || "";
   elements.nightXraySelect.value = record.nightXrayEmployeeId || "";
-  elements.recordMemoInput.value = record.memo || "";
   elements.mriRecommendationName.textContent = record.needsOt ? getEmployeeName(record.mriEmployeeId) : "조기출근 없음";
   elements.xrayRecommendationName.textContent = record.needsOt ? getEmployeeName(record.xrayEmployeeId) : "조기출근 없음";
   elements.mriRecommendationReason.textContent = "기존 기록을 수정 중입니다.";
@@ -2019,6 +2197,36 @@ async function serverRequest(path, options = {}) {
   return payload;
 }
 
+async function loadServerDateMemos() {
+  const payload = await serverRequest("/api/admin/date-memos");
+  const serverMemos = payload.memos && typeof payload.memos === "object" ? payload.memos : {};
+  const legacyMemos = { ...dateMemos };
+  dateMemos = serverMemos;
+
+  if (!Object.keys(serverMemos).length && Object.keys(legacyMemos).length) {
+    for (const [date, memo] of Object.entries(legacyMemos)) {
+      await serverRequest("/api/admin/date-memos", {
+        method: "POST",
+        body: JSON.stringify({ date, memo })
+      });
+      dateMemos[date] = memo;
+    }
+    localStorage.removeItem("radiology-work-date-memos");
+  }
+  renderCalendar();
+}
+
+async function saveSelectedDateMemo() {
+  const date = elements.selectedDateInput.value;
+  const memo = elements.dateMemoInput.value.trim();
+  dateMemos[date] = memo;
+  await saveDateMemos();
+  if (!memo) delete dateMemos[date];
+  closeDateMemoPopup();
+  flashSavedDates([date]);
+  showMessage(`${date} 메모를 저장했습니다.`);
+}
+
 async function loadServerSyncState() {
   const payload = await serverRequest("/api/admin/sync-state");
   serverSyncVersion = payload.version ?? 0;
@@ -2030,6 +2238,7 @@ async function reloadServerLatestData() {
     await loadServerCalendarMonth();
     await loadServerUsersAndEmployees();
     await loadServerMonthlySummary();
+    await loadServerDateMemos();
     setServerRecoveryButtonVisible(false);
     setServerStatus("서버 최신본을 다시 불러왔습니다.");
   } catch (error) {
@@ -2056,6 +2265,7 @@ async function checkServerSession() {
       await loadServerCalendarMonth();
       await loadServerUsersAndEmployees();
       await loadServerMonthlySummary();
+      await loadServerDateMemos();
     } catch (loadError) {
       setServerStatus(loadError.message || "서버 데이터를 불러오지 못했습니다.", "error");
     }
@@ -2097,6 +2307,7 @@ async function loginServerAdmin(usernameOverride = "", passwordOverride = "") {
       await loadServerCalendarMonth();
       await loadServerUsersAndEmployees();
       await loadServerMonthlySummary();
+      await loadServerDateMemos();
     } catch (loadError) {
       setServerStatus(loadError.message || "서버 데이터를 불러오지 못했습니다.", "error");
     }
@@ -2354,6 +2565,15 @@ elements.adminMyAttendanceToggleButton.addEventListener("click", () => {
 elements.calendarGrid.addEventListener("click", event => {
   const button = event.target.closest("button[data-date]");
   if (!button) return;
+  if (event.target.closest("[data-date-memo]")) {
+    elements.selectedDateInput.value = button.dataset.date;
+    saturdayOffPopupOpen = false;
+    closeDateInputMenu();
+    setInputSectionVisibility("");
+    renderAll();
+    openDateMemoPopup();
+    return;
+  }
   if (elements.attendanceOffSelect.value === "연차") {
     const date = button.dataset.date;
     if (selectedAnnualLeaveDates.has(date)) {
@@ -2367,8 +2587,78 @@ elements.calendarGrid.addEventListener("click", event => {
     return;
   }
   elements.selectedDateInput.value = button.dataset.date;
+  saturdayOffPopupOpen = false;
+  closeDateMemoPopup();
   renderAll();
-  loadSelectedRecordIntoForm();
+  setInputSectionVisibility("");
+  openDateInputMenu(event);
+});
+
+elements.annualLeaveCalendar.addEventListener("click", event => {
+  const button = event.target.closest("button[data-annual-date]");
+  if (!button) return;
+  const date = button.dataset.annualDate;
+  if (selectedAnnualLeaveDates.has(date)) {
+    selectedAnnualLeaveDates.delete(date);
+  } else {
+    selectedAnnualLeaveDates.add(date);
+  }
+  updateAnnualLeaveView();
+});
+
+elements.dateInputMenu.addEventListener("click", event => {
+  const button = event.target.closest("button[data-input-section]");
+  if (!button) return;
+  const sectionName = button.dataset.inputSection;
+  closeDateInputMenu();
+  if (sectionName === "saturday-off") {
+    setInputSectionVisibility("");
+    saturdayOffPopupOpen = true;
+    updateSaturdayOffButtonState();
+    moveFeedbackToPopup("saturday-off");
+    focusFirstInput(".saturday-off-box");
+    return;
+  }
+  if (sectionName === "date-memo") {
+    openDateMemoPopup();
+    return;
+  }
+  setInputSectionVisibility(sectionName);
+  if (sectionName === "ot" || sectionName === "night") loadSelectedRecordIntoForm();
+  focusFirstInput(`#${sectionName}InputSection`);
+});
+
+document.querySelectorAll("[data-close-input]").forEach(button => {
+  button.addEventListener("click", () => setInputSectionVisibility(""));
+});
+
+document.querySelectorAll("[data-close-saturday-off]").forEach(button => {
+  button.addEventListener("click", () => {
+    saturdayOffPopupOpen = false;
+    updateSaturdayOffButtonState();
+  });
+});
+
+document.addEventListener("click", event => {
+  if (
+    event.target.closest("#dateInputMenu") ||
+    event.target.closest("button[data-date]") ||
+    event.target.closest("#otInputSection, #nightInputSection, #attendanceInputSection, #dateMemoPopup, .saturday-off-box")
+  ) return;
+  closeDateInputMenu();
+  setInputSectionVisibility("");
+  closeDateMemoPopup();
+  saturdayOffPopupOpen = false;
+  updateSaturdayOffButtonState();
+});
+
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return;
+  closeDateInputMenu();
+  setInputSectionVisibility("");
+  closeDateMemoPopup();
+  saturdayOffPopupOpen = false;
+  updateSaturdayOffButtonState();
 });
 
 elements.calendarGrid.addEventListener("mouseover", event => {
@@ -2386,20 +2676,6 @@ elements.calendarGrid.addEventListener("mouseout", event => {
   hideCalendarTooltip();
 });
 
-elements.showOtInputButton.addEventListener("click", () => {
-  setInputSectionVisibility("ot");
-  loadSelectedRecordIntoForm();
-});
-
-elements.showNightInputButton.addEventListener("click", () => {
-  setInputSectionVisibility("night");
-  loadSelectedRecordIntoForm();
-});
-
-elements.showAttendanceInputButton.addEventListener("click", () => {
-  setInputSectionVisibility("attendance");
-});
-
 elements.recommendButton.addEventListener("click", () => {
   setInputSectionVisibility("ot");
   renderRecommendation(recommendForDate(elements.selectedDateInput.value));
@@ -2413,12 +2689,22 @@ elements.algorithmHelpCloseButton.addEventListener("click", () => {
   elements.algorithmHelpDialog.close();
 });
 
-elements.confirmRecordButton.addEventListener("click", saveRecord);
-elements.resetFormButton.addEventListener("click", resetRecommendationView);
+elements.saveOtRecordButton.addEventListener("click", saveRecord);
+elements.resetOtRecordButton.addEventListener("click", resetRecommendationView);
+elements.saveNightRecordButton.addEventListener("click", saveRecord);
+elements.resetNightRecordButton.addEventListener("click", resetRecommendationView);
 elements.exportCsvButton.addEventListener("click", exportCsv);
 elements.exportAttendanceCsvButton.addEventListener("click", exportAttendanceCsv);
 elements.saveAttendanceButton.addEventListener("click", saveAttendanceRecord);
 elements.saveSaturdayOffButton.addEventListener("click", saveSaturdayOff);
+elements.closeDateMemoButton.addEventListener("click", closeDateMemoPopup);
+elements.saveDateMemoButton.addEventListener("click", async () => {
+  try {
+    await saveSelectedDateMemo();
+  } catch (error) {
+    showMessage(error.message || "날짜 메모를 저장하지 못했습니다.", "error");
+  }
+});
 elements.resetAttendanceButton.addEventListener("click", () => resetAttendanceForm());
 elements.attendanceOtInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
 elements.attendanceOtUsedInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
@@ -2427,13 +2713,14 @@ elements.attendanceFlexUsedInput.addEventListener("input", syncAttendanceNoteWit
 elements.attendanceFlexReasonInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
 elements.attendanceManualNoteInput.addEventListener("input", syncAttendanceNoteWithOtInputs);
 elements.attendanceNameSelect.addEventListener("change", () => {
+  saturdayOffPopupOpen = false;
   selectedAnnualLeaveDates.clear();
   elements.annualLeaveMemoInput.value = "";
   elements.attendanceOffSelect.value = "";
   loadAttendanceRecordIntoForm(elements.selectedDateInput.value, elements.attendanceNameSelect.value);
   updateSaturdayOffButtonState();
 });
-elements.attendanceOffSelect.addEventListener("change", handleAttendanceOffChange);
+  elements.attendanceOffSelect.addEventListener("change", handleAttendanceOffChange);
 elements.alternateMriButton.addEventListener("click", () => recommendAlternate("mri"));
 elements.alternateXrayButton.addEventListener("click", () => recommendAlternate("xray"));
 elements.manualMriSelect.addEventListener("change", () => {
@@ -2512,6 +2799,10 @@ elements.employeeForm.addEventListener("submit", async event => {
 
   const existingIndex = appData.employees.findIndex(item => item.id === id);
   if (existingIndex >= 0) {
+    const previousName = appData.employees[existingIndex].name;
+    if (previousName !== name && !window.confirm("직원 이름을 변경하면 종합근태관리 프로그램의 직원 이름도 함께 변경해야 합니다. 계속 저장할까요?")) {
+      return;
+    }
     appData.employees[existingIndex] = employee;
   } else {
     appData.employees.push(employee);
@@ -2556,10 +2847,10 @@ elements.attendanceTableBody.addEventListener("click", event => {
   if (!button) return;
   if (button.dataset.action === "edit-attendance") {
     setInputSectionVisibility("attendance");
-    loadAttendanceRecordIntoForm(button.dataset.date, button.dataset.name);
+    loadAttendanceRecordIntoForm(button.dataset.date, button.dataset.employeeId);
   }
   if (button.dataset.action === "delete-attendance") {
-    deleteAttendanceRecord(button.dataset.date, button.dataset.name);
+    deleteAttendanceRecord(button.dataset.date, button.dataset.employeeId);
   }
 });
 
@@ -2570,7 +2861,6 @@ async function initialize() {
     renderAll();
     loadSelectedRecordIntoForm();
     await checkServerSession();
-    showMessage("서버에 로그인하면 최신 데이터가 자동으로 불러와집니다.");
   } catch (error) {
     showMessage(error.message, "error");
   }

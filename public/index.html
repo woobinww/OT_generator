@@ -28,7 +28,6 @@
     <div id="adminAppShell" class="hidden">
     <header class="topbar">
       <div>
-        <p class="eyebrow">영상의학과 업무 자동화</p>
         <h1>영상의학과 근무·근태 관리</h1>
       </div>
       <div class="topbar-actions">
@@ -47,10 +46,8 @@
         <section class="panel main-panel">
           <div class="section-title">
             <div>
-              <p class="eyebrow">하루 단위 기록</p>
-              <h2>날짜 선택 및 추천</h2>
+              <h2>근무 캘린더</h2>
             </div>
-            <span id="selectedWeekday" class="pill">요일</span>
           </div>
 
           <div class="calendar-box">
@@ -71,19 +68,24 @@
             </div>
             <div id="calendarGrid" class="calendar-grid"></div>
             <input id="selectedDateInput" type="date" class="hidden">
-          </div>
-
-          <div class="form-grid">
-            <label>
-              선택한 날짜
-              <input id="selectedDateDisplay" type="text" readonly>
-            </label>
-          </div>
-
-          <div class="button-row">
-            <button id="showOtInputButton" type="button">조출 입력</button>
-            <button id="showNightInputButton" type="button">야간 입력</button>
-            <button id="showAttendanceInputButton" type="button">근태 입력</button>
+            <div id="dateInputMenu" class="date-input-menu hidden" role="menu" aria-label="날짜 입력 메뉴">
+              <button type="button" data-input-section="ot" role="menuitem">조출</button>
+              <button type="button" data-input-section="night" role="menuitem">야간</button>
+              <button type="button" data-input-section="attendance" role="menuitem">근태</button>
+              <button type="button" data-input-section="saturday-off" role="menuitem">토요일 OFF</button>
+              <button type="button" data-input-section="date-memo" role="menuitem">새 메모</button>
+            </div>
+            <div class="saturday-off-box hidden">
+              <div class="saturday-off-title-row">
+                <p class="form-label-text">토요일 OFF 직원 <span class="input-date-context" data-input-date></span></p>
+                <button class="input-popup-close" data-close-saturday-off type="button">닫기</button>
+              </div>
+              <div>
+                <div id="saturdayOffList" class="saturday-off-list"></div>
+              </div>
+              <button id="saveSaturdayOffButton" type="button">토요일 OFF 저장</button>
+              <p class="muted small-note">토요일 날짜에서만 설정할 수 있습니다. 선택한 직원은 토요일OFF, 나머지 직원은 휴일근무 4시간으로 저장됩니다.</p>
+            </div>
           </div>
 
           <div id="messageBox" class="message hidden"></div>
@@ -92,9 +94,12 @@
             <div class="section-title compact-title">
               <div>
                 <p class="eyebrow">조기출근 OT</p>
-                <h2>MRI / X-ray 담당</h2>
+                <h2>MRI / X-ray 담당 <span class="input-date-context" data-input-date></span></h2>
               </div>
-              <button id="recommendButton" class="primary" type="button">선택 날짜 추천 받기</button>
+              <div class="input-popup-actions">
+                <button id="recommendButton" class="primary" type="button">선택 날짜 추천 받기</button>
+                <button class="input-popup-close" data-close-input type="button">닫기</button>
+              </div>
             </div>
             <div class="recommendation-grid">
               <article class="recommend-card mri-card">
@@ -131,14 +136,19 @@
                 </label>
               </article>
             </div>
+            <div class="button-row popup-button-row">
+              <button id="saveOtRecordButton" class="primary" type="button">이 날짜 기록 확정</button>
+              <button id="resetOtRecordButton" type="button">입력 초기화</button>
+            </div>
           </section>
 
           <section id="nightInputSection" class="night-shift-box hidden">
             <div class="section-title compact-title">
               <div>
                 <p class="eyebrow">화요일 / 금요일 야간근무</p>
-                <h2>야간 MRI / X-ray 담당</h2>
+                <h2>야간 MRI / X-ray 담당 <span class="input-date-context" data-input-date></span></h2>
               </div>
+              <button class="input-popup-close" data-close-input type="button">닫기</button>
             </div>
             <div class="night-assignment-grid">
               <div class="assignment-card">
@@ -163,14 +173,19 @@
               </div>
             </div>
             <p class="muted small-note">야간근무는 추천 없이 직접 입력합니다. 입력하지 않으면 달력에 표시되지 않습니다.</p>
+            <div class="button-row popup-button-row">
+              <button id="saveNightRecordButton" class="primary" type="button">이 날짜 기록 확정</button>
+              <button id="resetNightRecordButton" type="button">입력 초기화</button>
+            </div>
           </section>
 
           <section id="attendanceInputSection" class="attendance-box hidden">
             <div class="section-title compact-title">
               <div>
                 <p class="eyebrow">휴가 / 근태 / 시간 기록</p>
-                <h2>개인 근태 입력</h2>
+                <h2>개인 근태 입력 <span class="input-date-context" data-input-date></span></h2>
               </div>
+              <button class="input-popup-close" data-close-input type="button">닫기</button>
             </div>
             <div class="attendance-employee-field">
               <span>직원</span>
@@ -237,18 +252,11 @@
                   <p class="form-label-text">연차 날짜 선택</p>
                   <p id="annualLeaveSelectionSummary" class="muted small-note">달력에서 연차를 사용할 날짜를 하나씩 선택해 주세요.</p>
                 </div>
+                <div id="annualLeaveCalendar" class="annual-leave-calendar" aria-label="연차 날짜 선택 달력"></div>
                 <label class="annual-leave-memo-field">
                   <span>일괄 메모</span>
                   <input id="annualLeaveMemoInput" type="text" placeholder="휴가 사유">
                 </label>
-              </div>
-              <div class="saturday-off-box">
-                <div>
-                  <p class="form-label-text">토요일 OFF 직원</p>
-                  <div id="saturdayOffList" class="saturday-off-list"></div>
-                </div>
-                <button id="saveSaturdayOffButton" type="button">토요일 OFF 저장</button>
-                <p class="muted small-note">선택한 직원들은 off에 토요일OFF로 저장되고, 같은 날짜의 나머지 재직 직원은 holidayOt 4시간이 자동 입력됩니다.</p>
               </div>
             </fieldset>
 
@@ -271,24 +279,31 @@
             <p class="muted small-note">외부 연동 CSV의 ot와 flexOt는 각각 한 시간과 사용 시간을 합산해 저장합니다. 사용 시간은 양수로 입력해도 자동으로 음수 처리됩니다.</p>
           </section>
 
-          <label>
-            메모
-            <textarea id="recordMemoInput" rows="3" placeholder="post-op MRI 1건, X-ray 2건"></textarea>
-          </label>
+          <section id="dateMemoPopup" class="date-memo-popup hidden" aria-label="날짜 메모">
+            <div class="section-title compact-title">
+              <div>
+                <p class="eyebrow">날짜 메모</p>
+                <h2>메모 <span class="input-date-context" data-input-date></span></h2>
+              </div>
+              <button id="closeDateMemoButton" class="input-popup-close" type="button">닫기</button>
+            </div>
+            <label>
+              메모
+              <textarea id="dateMemoInput" rows="5" placeholder="이 날짜에 대한 메모를 입력하세요."></textarea>
+            </label>
+            <div class="button-row popup-button-row">
+              <button id="saveDateMemoButton" class="primary" type="button">메모 저장</button>
+            </div>
+          </section>
 
           <div id="warningBox" class="warning-box hidden"></div>
-
-          <div class="button-row">
-            <button id="confirmRecordButton" class="primary">이 날짜 기록 확정</button>
-            <button id="resetFormButton">입력 초기화</button>
-          </div>
         </section>
 
-        <details class="panel collapsible-panel">
+        <details class="panel collapsible-panel record-history-panel">
           <summary class="section-title collapsible-summary">
             <div>
               <p class="eyebrow">기록 확인</p>
-              <h2>날짜별 조기출근 기록</h2>
+              <h2>날짜별 기록</h2>
             </div>
             <span class="collapsible-hint">열기 / 닫기</span>
           </summary>
@@ -454,9 +469,9 @@
               <thead>
                 <tr>
                   <th>직원명</th>
-                  <th>총 OT</th>
-                  <th>MRI</th>
-                  <th>X-ray</th>
+                  <th>조출</th>
+                  <th>야간</th>
+                  <th>토요일 근무</th>
                 </tr>
               </thead>
               <tbody id="monthlySummaryBody"></tbody>
