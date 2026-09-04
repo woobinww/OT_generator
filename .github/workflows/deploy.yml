@@ -1,0 +1,44 @@
+name: Deploy attendance server
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: attendance-server-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout pushed commit
+        uses: actions/checkout@v4
+
+      - name: Validate and restart PM2 process
+        shell: powershell
+        run: |
+          Set-Location $env:GITHUB_WORKSPACE
+
+          npm run check
+          if ($LASTEXITCODE -ne 0) {
+            throw 'JavaScript syntax check failed.'
+          }
+
+          pm2 restart attendance-server --update-env
+          if ($LASTEXITCODE -ne 0) {
+            throw 'PM2 process restart failed.'
+          }
+
+          pm2 save
+          pm2 status
+
+          $response = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000
+          if ($response.StatusCode -ne 200) {
+            throw "Local health check failed with status $($response.StatusCode)."
+          }
+
+          Write-Host "Deployed commit: $env:GITHUB_SHA"
