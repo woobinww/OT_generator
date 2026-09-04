@@ -1761,7 +1761,6 @@ async function saveSaturdayOff() {
   renderAll();
   flashSavedDates([date]);
   closeInputPopups();
-  showMessage(`${date} 토요일 OFF ${offEmployees.length}명과 휴일근무 4시간을 저장했습니다.`);
 }
 
 function loadAttendanceRecordIntoForm(date, name) {
@@ -1835,7 +1834,6 @@ async function saveAttendanceRecord() {
   resetAttendanceForm(true);
   flashSavedDates([date]);
   closeInputPopups();
-  showMessage(`${date} ${name} 근태 기록을 저장했습니다.`);
 }
 
 async function saveAnnualLeaveRecords() {
@@ -1872,7 +1870,6 @@ async function saveAnnualLeaveRecords() {
   updateAnnualLeaveView();
   flashSavedDates(dates);
   closeInputPopups();
-  showMessage(`${name}님의 연차 ${dates.length}일을 등록했습니다.`);
 }
 
 async function deleteAttendanceRecord(date, employeeId) {
@@ -1980,7 +1977,6 @@ async function saveRecord() {
   loadSelectedRecordIntoForm();
   flashSavedDates([date]);
   closeInputPopups();
-  showMessage("기록이 저장되었습니다.");
 }
 
 function editEmployee(employeeId) {
@@ -2224,7 +2220,6 @@ async function saveSelectedDateMemo() {
   if (!memo) delete dateMemos[date];
   closeDateMemoPopup();
   flashSavedDates([date]);
-  showMessage(`${date} 메모를 저장했습니다.`);
 }
 
 async function loadServerSyncState() {
