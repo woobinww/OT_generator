@@ -5,6 +5,9 @@
   "type": "commonjs",
   "scripts": {
     "start": "node --no-warnings=ExperimentalWarning server.js",
+    "start:pm2": "pm2 start ecosystem.config.cjs",
+    "restart:pm2": "pm2 restart attendance-server",
+    "stop:pm2": "pm2 stop attendance-server",
     "check": "node --check server.js && node --check src/database.js && node --check src/migration.js && node --check src/server-app.js && node --check public/app.js"
   },
   "engines": {

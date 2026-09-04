@@ -38,6 +38,26 @@ npm start
 
 브라우저에서 `http://localhost:3000`으로 접속합니다.
 
+### PM2로 운영 서버 실행
+
+운영 PC에서는 PM2를 사용하면 서버 창을 닫아도 프로세스가 유지되고, 오류로 종료되면 자동으로 재시작할 수 있습니다. PM2는 운영 서버 PC에 한 번 설치하세요.
+
+```powershell
+npm install -g pm2
+pm2 start ecosystem.config.cjs
+pm2 save
+```
+
+상태 확인과 재시작은 아래 명령을 사용합니다.
+
+```powershell
+pm2 status
+pm2 logs attendance-server
+npm run restart:pm2
+```
+
+`ecosystem.config.cjs`는 서버를 `127.0.0.1:3000`에서 실행하도록 설정되어 있으므로 Cloudflare Tunnel origin도 `http://127.0.0.1:3000`으로 맞춰야 합니다. PM2를 Windows 시작 시 자동으로 실행하려면 운영 PC에서 PM2의 Windows startup 안내 명령을 한 번 실행하고 `pm2 save`로 현재 프로세스 목록을 저장하세요.
+
 Windows에서는 `서버실행.cmd`를 더블클릭해도 서버를 실행할 수 있습니다. 실제 운영 PC에서는 이 파일의 바로가기를 바탕화면에 만들어 두면 됩니다.
 
 첫 실행 시 SQLite DB가 `data/work-attendance.sqlite`에 자동 생성됩니다. 기본 관리자 계정은 아래와 같습니다.
