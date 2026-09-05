@@ -1,26 +1,45 @@
 const { createReadStream, existsSync } = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { hashPassword, verifyPassword, getSyncVersion } = require("./database");
+const { hashPassword, verifyPassword, getSyncVersion, writeAuditLog } = require("./database");
 const { importLocalData } = require("./migration");
+const { createLogger } = require("./logger");
 
 const publicDirectory = path.join(__dirname, "..", "public");
 const sessions = new Map();
 const integrationKey = process.env.INTEGRATION_KEY || "local-integration-key";
 
-function createApp({ database }) {
+function createApp({ database, logger }) {
+  const appLogger = logger || createLogger();
   return async function app(request, response) {
+    const startedAt = Date.now();
+    const requestPath = String(request.url || "").split("?", 1)[0] || "/";
+    response.on("finish", () => {
+      appLogger.access({
+        method: request.method,
+        path: requestPath,
+        status: response.statusCode,
+        durationMs: Date.now() - startedAt
+      });
+    });
+
     try {
       const url = new URL(request.url, "http://localhost");
 
       if (url.pathname.startsWith("/api/")) {
-        await handleApiRequest({ request, response, url, database });
+        await handleApiRequest({ request, response, url, database, logger: appLogger });
         return;
       }
 
       serveStaticFile(url.pathname, response);
     } catch (error) {
       console.error(error);
+      appLogger.error({
+        method: request.method,
+        path: requestPath,
+        status: Number(error.statusCode || error.status || 500),
+        message: error.message || "unknown error"
+      });
       const statusCode = Number(error.statusCode || error.status || 500);
       const payload = { error: error.message || "서버 오류가 발생했습니다." };
       if (error.latestVersion !== undefined) {
@@ -31,28 +50,31 @@ function createApp({ database }) {
   };
 }
 
-async function handleApiRequest({ request, response, url, database }) {
+async function handleApiRequest({ request, response, url, database, logger }) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     sendJson(response, 200, { ok: true });
     return;
   }
 
   if (request.method === "GET" && url.pathname === "/api/integration/attendance") {
-    if (!requireIntegrationKey(request, response, url)) return;
+    if (!requireIntegrationKey(request, response, url, logger)) return;
 
     const month = getRequestedMonth(url);
+    const rows = getIntegrationAttendanceRows(database, month);
+    logger.info("integration.attendance_json", { month, rowCount: rows.length });
     sendJson(response, 200, {
       month,
-      rows: getIntegrationAttendanceRows(database, month)
+      rows
     });
     return;
   }
 
   if (request.method === "GET" && url.pathname === "/api/integration/attendance.csv") {
-    if (!requireIntegrationKey(request, response, url)) return;
+    if (!requireIntegrationKey(request, response, url, logger)) return;
 
     const month = getRequestedMonth(url);
     const rows = getIntegrationAttendanceRows(database, month);
+    logger.info("integration.attendance_csv", { month, rowCount: rows.length });
     sendCsv(response, `attendance-${month}.csv`, buildAttendanceCsv(rows));
     return;
   }
@@ -62,6 +84,9 @@ async function handleApiRequest({ request, response, url, database }) {
     const user = database.prepare("SELECT id, username, password_hash, role, employee_id FROM users WHERE username = ?").get(body.username || "");
 
     if (!user || !verifyPassword(body.password || "", user.password_hash)) {
+      recordAudit(database, "auth.login_failed", null, {
+        details: { username: String(body.username || "").trim() }
+      });
       sendJson(response, 401, { error: "아이디 또는 비밀번호가 올바르지 않습니다." });
       return;
     }
@@ -74,6 +99,7 @@ async function handleApiRequest({ request, response, url, database }) {
       employeeId: user.employee_id || null
     });
 
+    recordAudit(database, "auth.login_success", sessions.get(sessionId));
     response.setHeader("Set-Cookie", buildSessionCookie(sessionId));
     sendJson(response, 200, { user: serializeUser(user) });
     return;
@@ -81,6 +107,8 @@ async function handleApiRequest({ request, response, url, database }) {
 
   if (request.method === "POST" && url.pathname === "/api/auth/logout") {
     const sessionId = getSessionId(request);
+    const session = sessionId ? sessions.get(sessionId) : null;
+    if (session) recordAudit(database, "auth.logout", session);
     if (sessionId) sessions.delete(sessionId);
     response.setHeader("Set-Cookie", "session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
     sendJson(response, 200, { ok: true });
@@ -93,6 +121,9 @@ async function handleApiRequest({ request, response, url, database }) {
 
     const body = await readJsonBody(request);
     updateOwnPassword(database, session.userId, body.currentPassword, body.newPassword);
+    recordAudit(database, "user.password_changed", session, {
+      details: { targetUserId: session.userId, self: true }
+    });
     sendJson(response, 200, { ok: true });
     return;
   }
@@ -168,6 +199,10 @@ async function handleApiRequest({ request, response, url, database }) {
 
     const body = await readJsonBody(request);
     const memo = saveDateMemo(database, body?.date, body?.memo);
+    recordAudit(database, "date_memo.saved", session, {
+      targetDate: memo.date,
+      details: { hasMemo: Boolean(memo.memo) }
+    });
     sendJson(response, 200, { ok: true, memo });
     return;
   }
@@ -178,6 +213,10 @@ async function handleApiRequest({ request, response, url, database }) {
 
     const body = await readJsonBody(request);
     const user = createUser(database, body);
+    recordAudit(database, "user.created", session, {
+      targetEmployeeId: user.employeeId,
+      details: { targetUserId: user.id, role: user.role, username: user.username }
+    });
     sendJson(response, 201, { user });
     return;
   }
@@ -188,7 +227,11 @@ async function handleApiRequest({ request, response, url, database }) {
     if (!session) return;
 
     const body = await readJsonBody(request);
-    updateUserPassword(database, Number(passwordChangeMatch[1]), body.password);
+    const targetUserId = Number(passwordChangeMatch[1]);
+    updateUserPassword(database, targetUserId, body.password);
+    recordAudit(database, "user.password_changed", session, {
+      details: { targetUserId, self: targetUserId === session.userId }
+    });
     sendJson(response, 200, { ok: true });
     return;
   }
@@ -199,7 +242,11 @@ async function handleApiRequest({ request, response, url, database }) {
     if (!session) return;
 
     const body = await readJsonBody(request);
-    updateUserRole(database, Number(roleChangeMatch[1]), body.role, session.userId);
+    const targetUserId = Number(roleChangeMatch[1]);
+    updateUserRole(database, targetUserId, body.role, session.userId);
+    recordAudit(database, "user.role_changed", session, {
+      details: { targetUserId, role: body.role }
+    });
     sendJson(response, 200, { ok: true });
     return;
   }
@@ -220,9 +267,31 @@ async function handleApiRequest({ request, response, url, database }) {
     const body = await readJsonBody(request);
     const replace = url.searchParams.get("replace") === "true";
     const localData = body && typeof body === "object" && body.data ? body.data : body;
-    const summary = importLocalData(database, localData, {
-      replace,
-      expectedVersion: body && typeof body === "object" ? body.baseVersion : null
+    let summary;
+    try {
+      summary = importLocalData(database, localData, {
+        replace,
+        expectedVersion: body && typeof body === "object" ? body.baseVersion : null
+      });
+    } catch (error) {
+      if (error.statusCode === 409) {
+        recordAudit(database, "data.sync_conflict", session, {
+          details: { replace }
+        });
+      }
+      throw error;
+    }
+    recordAudit(database, "data.imported", session, {
+      details: {
+        replace,
+        employees: summary.employees,
+        workRecords: summary.workRecords,
+        attendanceRecords: summary.attendanceRecords,
+        deletedWorkRecords: summary.deletedWorkRecords,
+        deletedAttendanceRecords: summary.deletedAttendanceRecords,
+        deletedEmployees: summary.deletedEmployees,
+        version: summary.version
+      }
     });
     sendJson(response, 200, { ok: true, summary });
     return;
@@ -652,6 +721,20 @@ function serializeUser(user) {
   };
 }
 
+function recordAudit(database, eventType, session, details = {}) {
+  try {
+    writeAuditLog(database, {
+      eventType,
+      actorUserId: session?.userId,
+      actorUsername: session?.username,
+      actorRole: session?.role,
+      ...details
+    });
+  } catch (error) {
+    console.error("감사 로그 기록 실패:", error);
+  }
+}
+
 function requireRole(request, response, role) {
   const session = requireSession(request, response);
   if (!session) return null;
@@ -672,9 +755,10 @@ function requireSession(request, response) {
   return session;
 }
 
-function requireIntegrationKey(request, response, url) {
+function requireIntegrationKey(request, response, url, logger) {
   const requestKey = request.headers["x-integration-key"] || url.searchParams.get("key") || "";
   if (String(requestKey) !== integrationKey) {
+    logger.info("integration.authentication_failed", { path: url.pathname });
     sendJson(response, 401, { error: "연동키가 올바르지 않습니다." });
     return false;
   }

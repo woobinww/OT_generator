@@ -103,6 +103,22 @@ function createTables(database) {
       version INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      event_type TEXT NOT NULL,
+      actor_user_id INTEGER,
+      actor_username TEXT,
+      actor_role TEXT,
+      target_date TEXT,
+      target_employee_id INTEGER,
+      details_json TEXT NOT NULL DEFAULT '{}',
+      FOREIGN KEY (actor_user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_event_type ON audit_logs(event_type);
   `);
   ensureAttendanceRecordColumns(database);
 }
@@ -165,9 +181,36 @@ function getSyncVersion(database) {
   return Number(row?.version || 0);
 }
 
+function writeAuditLog(database, event = {}) {
+  const details = event.details && typeof event.details === "object"
+    ? JSON.stringify(event.details)
+    : "{}";
+
+  database.prepare(`
+    INSERT INTO audit_logs (
+      event_type,
+      actor_user_id,
+      actor_username,
+      actor_role,
+      target_date,
+      target_employee_id,
+      details_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    String(event.eventType || "unknown"),
+    event.actorUserId == null ? null : Number(event.actorUserId),
+    event.actorUsername ? String(event.actorUsername) : null,
+    event.actorRole ? String(event.actorRole) : null,
+    event.targetDate ? String(event.targetDate) : null,
+    event.targetEmployeeId == null ? null : Number(event.targetEmployeeId),
+    details
+  );
+}
+
 module.exports = {
   initializeDatabase,
   hashPassword,
   verifyPassword,
-  getSyncVersion
+  getSyncVersion,
+  writeAuditLog
 };
