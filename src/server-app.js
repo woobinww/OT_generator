@@ -662,6 +662,8 @@ function getFullData(database) {
       e.name,
       a.ot,
       a.ot_earned AS otEarned,
+      a.early_ot AS earlyOt,
+      a.other_ot AS otherOt,
       a.ot_used AS otUsed,
       a.night_ot AS nightOt,
       a.holiday_ot AS holidayOt,
@@ -833,3 +835,4 @@ function getCurrentMonth() {
 }
 
 module.exports = { createApp };
+

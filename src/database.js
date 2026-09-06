@@ -128,6 +128,8 @@ function ensureAttendanceRecordColumns(database) {
     database.prepare("PRAGMA table_info(attendance_records)").all().map(column => column.name)
   );
   const columns = [
+    ["early_ot", "REAL"],
+    ["other_ot", "REAL"],
     ["flex_earned", "REAL NOT NULL DEFAULT 0"],
     ["flex_used", "REAL NOT NULL DEFAULT 0"],
     ["flex_reason", "TEXT NOT NULL DEFAULT ''"],
@@ -214,3 +216,4 @@ module.exports = {
   getSyncVersion,
   writeAuditLog
 };
+

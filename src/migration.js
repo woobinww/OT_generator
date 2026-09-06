@@ -1,3 +1,5 @@
+const OtModel = require("../public/ot-model");
+
 function importLocalData(database, localData, options = {}) {
   validateLocalData(localData);
   const expectedVersion = Number.isFinite(Number(options.expectedVersion))
@@ -266,6 +268,8 @@ function upsertAttendanceRecord(database, record, employeeId) {
       employee_id,
       ot,
       ot_earned,
+      early_ot,
+      other_ot,
       ot_used,
       night_ot,
       holiday_ot,
@@ -279,10 +283,12 @@ function upsertAttendanceRecord(database, record, employeeId) {
       auto_note,
       note
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(date, employee_id) DO UPDATE SET
       ot = excluded.ot,
       ot_earned = excluded.ot_earned,
+      early_ot = excluded.early_ot,
+      other_ot = excluded.other_ot,
       ot_used = excluded.ot_used,
       night_ot = excluded.night_ot,
       holiday_ot = excluded.holiday_ot,
@@ -301,6 +307,8 @@ function upsertAttendanceRecord(database, record, employeeId) {
     employeeId,
     ot,
     otParts.otEarned,
+    OtModel.getSplit(record)?.earlyOt ?? null,
+    OtModel.getSplit(record)?.otherOt ?? null,
     otParts.otUsed,
     toNumberOrZero(record.nightOt),
     toNumberOrZero(record.holidayOt),
@@ -317,6 +325,8 @@ function upsertAttendanceRecord(database, record, employeeId) {
 }
 
 function getOtParts(record) {
+  const split = OtModel.getSplit(record);
+  if (split) return { otEarned: split.otEarned, otUsed: normalizeOtUsedValue(record.otUsed) };
   const legacyOt = toNumberOrZero(record.ot);
   const hasStoredParts = record.otEarned !== undefined || record.otUsed !== undefined;
 
@@ -420,3 +430,4 @@ function toNumberOrZero(value) {
 }
 
 module.exports = { importLocalData };
+

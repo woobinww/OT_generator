@@ -8,7 +8,8 @@
     "start:pm2": "pm2 start ecosystem.config.cjs",
     "restart:pm2": "pm2 restart attendance-server",
     "stop:pm2": "pm2 stop attendance-server",
-    "check": "node --check server.js && node --check src/database.js && node --check src/migration.js && node --check src/server-app.js && node --check public/app.js"
+    "check": "node --check server.js && node --check src/database.js && node --check src/migration.js && node --check src/server-app.js && node --check src/logger.js && node --check public/ot-model.js && node --check public/app.js && node --check public/user.js",
+    "test": "node --test tests/*.test.js"
   },
   "engines": {
     "node": ">=24.0.0"
