@@ -10,6 +10,8 @@ module.exports = {
     max_restarts: 10,
     restart_delay: 3000,
     time: true,
+    out_file: './logs/attendance-server-out.log',
+    error_file: './logs/attendance-server-error.log',
     env: {
       NODE_ENV: 'production',
       HOST: '127.0.0.1',

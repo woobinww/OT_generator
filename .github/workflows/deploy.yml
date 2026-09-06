@@ -22,6 +22,7 @@ jobs:
         shell: powershell -ExecutionPolicy Bypass -File {0}
         run: |
           Set-Location $env:GITHUB_WORKSPACE
+          New-Item -ItemType Directory -Force -Path (Join-Path $env:GITHUB_WORKSPACE 'logs') | Out-Null
 
           $nodePaths = @(
             "$env:ProgramFiles\nodejs",
