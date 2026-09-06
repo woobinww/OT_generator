@@ -4,13 +4,15 @@ const crypto = require("node:crypto");
 const { hashPassword, verifyPassword, getSyncVersion, writeAuditLog } = require("./database");
 const { importLocalData } = require("./migration");
 const { createLogger } = require("./logger");
+const { createBackupManager } = require("./backup");
 
 const publicDirectory = path.join(__dirname, "..", "public");
 const sessions = new Map();
 const integrationKey = process.env.INTEGRATION_KEY || "local-integration-key";
 
-function createApp({ database, logger }) {
+function createApp({ database, logger, backupManager }) {
   const appLogger = logger || createLogger();
+  const backups = backupManager || createBackupManager(database);
   return async function app(request, response) {
     const startedAt = Date.now();
     const requestPath = String(request.url || "").split("?", 1)[0] || "/";
@@ -27,7 +29,7 @@ function createApp({ database, logger }) {
       const url = new URL(request.url, "http://localhost");
 
       if (url.pathname.startsWith("/api/")) {
-        await handleApiRequest({ request, response, url, database, logger: appLogger });
+        await handleApiRequest({ request, response, url, database, logger: appLogger, backups });
         return;
       }
 
@@ -50,7 +52,7 @@ function createApp({ database, logger }) {
   };
 }
 
-async function handleApiRequest({ request, response, url, database, logger }) {
+async function handleApiRequest({ request, response, url, database, logger, backups }) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     sendJson(response, 200, { ok: true });
     return;
@@ -182,6 +184,22 @@ async function handleApiRequest({ request, response, url, database, logger }) {
     if (!session) return;
 
     sendJson(response, 200, { version: getSyncVersion(database) });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/admin/backups") {
+    const session = requireRole(request, response, "admin");
+    if (!session) return;
+    sendJson(response, 200, { backups: backups.listBackups().map(({ fileName }) => ({ fileName })) });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/backups") {
+    const session = requireRole(request, response, "admin");
+    if (!session) return;
+    const backup = backups.createBackup("manual");
+    recordAudit(database, "data.backup_created", session, { details: { fileName: backup.fileName } });
+    sendJson(response, 201, { ok: true, backup: { fileName: backup.fileName } });
     return;
   }
 
@@ -837,4 +855,3 @@ function getCurrentMonth() {
 }
 
 module.exports = { createApp };
-

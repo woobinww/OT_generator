@@ -171,6 +171,7 @@ const elements = {
   attendanceTableBody: document.querySelector("#attendanceTableBody"),
   serverStatusBox: document.querySelector("#serverStatusBox"),
   serverReloadButton: document.querySelector("#serverReloadButton"),
+  serverBackupButton: document.querySelector("#serverBackupButton"),
   serverLogoutButton: document.querySelector("#serverLogoutButton"),
   serverImportFileInput: document.querySelector("#serverImportFileInput"),
   serverImportButton: document.querySelector("#serverImportButton"),
@@ -2366,6 +2367,15 @@ async function reloadServerLatestData() {
   }
 }
 
+async function createServerBackup() {
+  try {
+    const payload = await serverRequest("/api/admin/backups", { method: "POST", body: "{}" });
+    setServerStatus(`서버 백업을 생성했습니다: ${payload.backup.fileName}`);
+  } catch (error) {
+    setServerStatus(error.message || "서버 백업을 생성하지 못했습니다.", "error");
+  }
+}
+
 async function checkServerSession() {
   if (!elements.serverStatusBox) return;
   try {
@@ -2882,6 +2892,7 @@ elements.adminGatePasswordInput.addEventListener("keydown", event => {
 elements.serverLogoutButton.addEventListener("click", logoutServerAdmin);
 elements.serverImportButton.addEventListener("click", importLocalBackupToServer);
 elements.serverReloadButton.addEventListener("click", reloadServerLatestData);
+elements.serverBackupButton.addEventListener("click", createServerBackup);
 elements.serverUsersRefreshButton.addEventListener("click", loadServerUsersAndEmployees);
 elements.serverCreateUserToggleButton.addEventListener("click", () => openServerAccountForm(elements.serverCreateUserForm));
 elements.serverChangePasswordToggleButton.addEventListener("click", () => openServerAccountForm(elements.serverChangePasswordForm));
@@ -3001,4 +3012,3 @@ async function initialize() {
 }
 
 initialize();
-

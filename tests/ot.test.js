@@ -6,6 +6,7 @@ const { createServer } = require('node:http');
 const { initializeDatabase } = require('../src/database');
 const { importLocalData } = require('../src/migration');
 const { createApp } = require('../src/server-app');
+const { createBackupManager } = require('../src/backup');
 const OtModel = require('../public/ot-model');
 
 function browser() {
@@ -199,4 +200,15 @@ test('HTTP API/CSV, monthly summary, DB and backup roundtrip retain the same tot
   invalid.attendanceRecords[0].earlyOt=-1;
   assert.throws(()=>importLocalData(db,invalid,{replace:true,expectedVersion:2}));
   assert.equal(await getCsv(), csv);
+});
+
+test('SQLite backup manager creates a complete snapshot and applies retention', () => {
+  const db = initializeDatabase(':memory:');
+  const dir = require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'ot-backup-'));
+  const manager = createBackupManager(db, { directory: dir, retention: 2 });
+  manager.createBackup('test');
+  assert.equal(manager.listBackups().length, 1);
+  assert.ok(require('node:fs').statSync(manager.listBackups()[0].path).size > 0);
+  db.close();
+  require('node:fs').rmSync(dir, { recursive: true, force: true });
 });
