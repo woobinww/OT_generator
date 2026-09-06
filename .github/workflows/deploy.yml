@@ -42,9 +42,11 @@ jobs:
             throw 'JavaScript syntax check failed.'
           }
 
-          pm2.cmd restart attendance-server --update-env
+          # Restarting alone preserves an old PM2 cwd/script. Re-register from this checkout.
+          pm2.cmd delete attendance-server 2>$null
+          pm2.cmd start ecosystem.config.cjs --update-env
           if ($LASTEXITCODE -ne 0) {
-            throw 'PM2 process restart failed.'
+            throw 'PM2 process start failed.'
           }
 
           pm2.cmd save
