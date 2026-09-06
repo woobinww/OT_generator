@@ -597,6 +597,8 @@ function getUserCalendarData(database, month, viewerEmployeeId) {
           name: record.name,
           ot: isMine ? record.ot : 0,
           otEarned: isMine ? record.otEarned : 0,
+          earlyOt: isMine ? record.earlyOt : 0,
+          otherOt: isMine ? record.otherOt : 0,
           otUsed: isMine ? record.otUsed : 0,
           nightOt: isMine ? record.nightOt : 0,
           holidayOt: isMine ? record.holidayOt : 0,
@@ -662,6 +664,8 @@ function getFullData(database) {
       e.name,
       a.ot,
       a.ot_earned AS otEarned,
+      a.early_ot AS earlyOt,
+      a.other_ot AS otherOt,
       a.ot_used AS otUsed,
       a.night_ot AS nightOt,
       a.holiday_ot AS holidayOt,
@@ -833,3 +837,4 @@ function getCurrentMonth() {
 }
 
 module.exports = { createApp };
+

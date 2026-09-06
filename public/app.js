@@ -73,7 +73,6 @@ let currentRecommendation = null;
 let calendarTooltipElement = null;
 let serverViewMode = false;
 let serverAutoSyncEnabled = false;
-let serverAutoSyncTimer = null;
 let serverSyncVersion = null;
 let adminEmployeeId = "";
 let adminOnlyMyAttendance = false;
@@ -443,8 +442,9 @@ function stripAutoOtNotePrefix(noteText) {
 }
 
 function syncAttendanceNoteWithOtInputs() {
+  updateAttendanceOtDisplay();
   const autoNote = buildAttendanceAutoNote(
-    elements.attendanceOtInput.value,
+    getEarlyOt(elements.selectedDateInput.value, elements.attendanceNameSelect.value) + toNumberOrZero(elements.attendanceOtInput.value),
     elements.attendanceOtUsedInput.value,
     elements.attendanceFlexEarnedInput.value,
     elements.attendanceFlexUsedInput.value,
@@ -454,6 +454,8 @@ function syncAttendanceNoteWithOtInputs() {
 }
 
 function getOtParts(record) {
+  const split = OtModel.getSplit(record);
+  if (split) return { otEarned: split.otEarned, otUsed: normalizeOtUsedValue(record.otUsed) };
   const legacyOt = toNumberOrZero(record.ot);
   const legacyDisplayOt = toOptionalNumber(record.displayOt);
   const hasStoredParts = record.otEarned !== undefined || record.otUsed !== undefined;
@@ -521,6 +523,8 @@ function normalizeAttendanceRecord(record) {
     name: record.name || "",
     ot: otTotal,
     otEarned: otParts.otEarned,
+    earlyOt: OtModel.getSplit(record)?.earlyOt ?? null,
+    otherOt: OtModel.getSplit(record)?.otherOt ?? null,
     otUsed: otParts.otUsed,
     nightOt: toNumberOrZero(record.nightOt),
     holidayOt: toNumberOrZero(record.holidayOt),
@@ -561,38 +565,58 @@ function saveDateMemos() {
   });
 }
 
+let saveQueue = Promise.resolve();
+let pendingSaves = 0;
+let hasUnsavedChanges = false;
+
 function saveData(options = {}) {
-  if (options.syncServer !== false) {
-    scheduleServerAutoSync();
-  }
-}
-
-function scheduleServerAutoSync() {
-  if (!serverAutoSyncEnabled) return;
-  clearTimeout(serverAutoSyncTimer);
-  serverAutoSyncTimer = setTimeout(() => {
-    syncLocalDataToServer().catch(error => {
-      console.error(error);
-      if (error.status === 409) {
-        serverAutoSyncEnabled = false;
-        setServerRecoveryButtonVisible(true);
-        setServerStatus(error.message || "서버 동기화 충돌이 발생했습니다. 서버에서 다시 불러온 뒤 저장해 주세요.", "error");
-        return;
-      }
-      setServerStatus(error.message || "저장은 되었지만 서버 자동 동기화에 실패했습니다.", "error");
+  if (options.syncServer === false) return Promise.resolve(true);
+  hasUnsavedChanges = true;
+  const snapshot = JSON.parse(JSON.stringify(appData));
+  pendingSaves += 1;
+  elements.adminAppShell.inert = true;
+  elements.adminAppShell.setAttribute("aria-busy", "true");
+  setServerStatus("서버에 저장 중입니다…");
+  const operation = saveQueue.then(async () => {
+    if (!serverAutoSyncEnabled) throw new Error("서버 최신본을 불러온 뒤 저장해 주세요. 현재 변경 내용은 아직 저장되지 않았습니다.");
+    const payload = await serverRequest("/api/admin/import-local-data?replace=true", {
+      method: "POST",
+      signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({ data: snapshot, baseVersion: serverSyncVersion })
     });
-  }, 300);
+    serverSyncVersion = payload.summary.version;
+    hasUnsavedChanges = false;
+    setServerStatus("서버에 저장했습니다.");
+    // Summary refresh failure must not turn a committed write into a failed save.
+    loadServerMonthlySummary().catch(console.error);
+    return true;
+  }).catch(error => {
+    hasUnsavedChanges = true;
+    if (error.status === 409 || error.status === 401) serverAutoSyncEnabled = false;
+    setServerRecoveryButtonVisible(true);
+    const message = `저장하지 못했습니다. 입력 내용은 유지됩니다. ${error.message}`;
+    setServerStatus(message, "error");
+    showMessage(message, "error");
+    return false;
+  }).finally(() => {
+    pendingSaves -= 1;
+    if (!pendingSaves) {
+      elements.adminAppShell.inert = false;
+      elements.adminAppShell.removeAttribute("aria-busy");
+    }
+  });
+  // A failed queued write must prevent later snapshots from silently committing.
+  saveQueue = operation.then(ok => {
+    if (!ok && pendingSaves > 0) serverAutoSyncEnabled = false;
+  });
+  return operation;
 }
 
-async function syncLocalDataToServer() {
-  if (!serverAutoSyncEnabled) return;
-  const payload = await serverRequest("/api/admin/import-local-data?replace=true", {
-    method: "POST",
-    body: JSON.stringify({ data: appData, baseVersion: serverSyncVersion })
-  });
-  serverSyncVersion = payload.summary?.version ?? serverSyncVersion;
-  await loadServerMonthlySummary();
-}
+window.addEventListener("beforeunload", event => {
+  if (!pendingSaves && !hasUnsavedChanges) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
 
 function isEmployeeActiveOnDate(employee, dateText) {
   if (!employee) return false;
@@ -1167,8 +1191,10 @@ function buildCalendarMiddleText(dateText, employeeId = "") {
       const name = getGivenNameOnlyByName(record.name);
       const details = [];
       if (record.off) details.push(getShortOffLabel(record.off));
-      if (record.otEarned !== 0 && !topOtEmployeeIds.has(record.employeeId)) {
-        details.push(`OT ${record.otEarned}`);
+      const otherOt = record.otherOt ?? record.otEarned;
+      if (otherOt !== 0) {
+        const label = record.otherOt == null && topOtEmployeeIds.has(record.employeeId) ? "OT 합계(구분 전)" : "OT";
+        details.push(`${label} ${otherOt}`);
       }
       if (record.otUsed < 0) details.push(`OT ${record.otUsed}`);
       if (record.flexOt < 0) details.push(`탄력 ${record.flexOt}`);
@@ -1195,8 +1221,8 @@ function buildCalendarTooltipText(dateText, record, middleText, missingWorkTime,
     const mriAttendance = getAttendanceRecord(record.date, getEmployeeName(record.mriEmployeeId));
     const xrayAttendance = getAttendanceRecord(record.date, getEmployeeName(record.xrayEmployeeId));
     lines.push(employeeId
-      ? `OT: ${ownAssignment.ot.map(assignmentId => formatOwnCalendarAssignment(dateText, assignmentId, "otEarned")).join("/")}`
-      : `OT: ${getGivenNameOnly(record.mriEmployeeId)}${formatTimeSuffix(mriAttendance?.otEarned)}/${getGivenNameOnly(record.xrayEmployeeId)}${formatTimeSuffix(xrayAttendance?.otEarned)}`);
+      ? `조: ${ownAssignment.ot.map(assignmentId => formatOwnCalendarAssignment(dateText, assignmentId, "earlyOt")).join("/")}`
+      : `조: ${formatEarlyCalendarName(dateText, record.mriEmployeeId)}/${formatEarlyCalendarName(dateText, record.xrayEmployeeId)}`);
   }
 
   const attendanceLines = appData.attendanceRecords
@@ -1236,6 +1262,11 @@ function buildAttendanceTooltipLine(record, mineOnly = false) {
     details.push(getShortOffLabel(record.off));
   }
 
+  const work = appData.records.find(item => item.date === record.date);
+  const assigned = work?.needsOt && [work.mriEmployeeId, work.xrayEmployeeId].includes(record.employeeId);
+  const otherOt = record.otherOt ?? record.otEarned;
+  if (otherOt) details.push(`${record.otherOt == null && assigned ? "OT 합계(구분 전)" : "OT"} ${otherOt}`);
+  if (record.earlyOt != null && record.otEarned) details.push(`발생 OT 합계 ${record.otEarned}`);
   if (record.otUsed < 0) details.push(`OT ${record.otUsed}`);
   if (record.flexOt !== 0) details.push(`탄력 ${record.flexOt}`);
   if (record.holidayOt !== 0) details.push(`휴일 ${record.holidayOt}`);
@@ -1252,7 +1283,7 @@ function hasMissingWorkTime(record, employeeId = "") {
   if (employeeId) {
     const ownAssignment = getOwnAssignmentIds(record, employeeId);
     if (record.needsOt && ownAssignment.ot.length) {
-      return ownAssignment.ot.some(assignmentId => !getAttendanceRecord(record.date, getEmployeeName(assignmentId))?.otEarned);
+      return ownAssignment.ot.some(assignmentId => !getAttendanceRecord(record.date, getEmployeeName(assignmentId))?.earlyOt);
     }
     if (ownAssignment.night.length) {
       return ownAssignment.night.some(assignmentId => !getAttendanceRecord(record.date, getEmployeeName(assignmentId))?.nightOt);
@@ -1263,7 +1294,7 @@ function hasMissingWorkTime(record, employeeId = "") {
   if (record.needsOt) {
     const mriAttendance = getAttendanceRecord(record.date, getEmployeeName(record.mriEmployeeId));
     const xrayAttendance = getAttendanceRecord(record.date, getEmployeeName(record.xrayEmployeeId));
-    if (!mriAttendance?.otEarned || !xrayAttendance?.otEarned) return true;
+    if (!mriAttendance?.earlyOt || !xrayAttendance?.earlyOt) return true;
   }
 
   if (record.nightMriEmployeeId || record.nightXrayEmployeeId) {
@@ -1284,8 +1315,16 @@ function getOwnAssignmentIds(record, employeeId) {
   };
 }
 
+function formatEarlyCalendarName(dateText, employeeId) {
+  return `${getGivenNameOnly(employeeId)}(${formatOwnCalendarAssignment(dateText, employeeId, "earlyOt")})`;
+}
+
 function formatOwnCalendarAssignment(dateText, employeeId, fieldName) {
   const attendance = getAttendanceRecord(dateText, employeeId);
+  if (fieldName === "earlyOt") {
+    if (!attendance) return "미입력";
+    return attendance.earlyOt == null ? "미확인" : formatNumberForNote(attendance.earlyOt);
+  }
   const value = Number(attendance?.[fieldName] || 0);
   return value > 0 ? formatNumberForNote(value) : "있음";
 }
@@ -1373,8 +1412,8 @@ function renderCalendar() {
     }
     const otText = record?.needsOt && (!adminOnlyMyAttendance || ownAssignment.ot.length)
       ? adminOnlyMyAttendance
-        ? `OT: ${ownAssignment.ot.map(employeeId => formatOwnCalendarAssignment(dateText, employeeId, "otEarned")).join("/")}`
-        : `OT: ${getGivenNameOnly(record.mriEmployeeId)}/${getGivenNameOnly(record.xrayEmployeeId)}`
+        ? `조: ${ownAssignment.ot.map(employeeId => formatOwnCalendarAssignment(dateText, employeeId, "earlyOt")).join("/")}`
+        : `조: ${formatEarlyCalendarName(dateText, record.mriEmployeeId)}/${formatEarlyCalendarName(dateText, record.xrayEmployeeId)}`
       : "";
     const nightText = (record?.nightMriEmployeeId || record?.nightXrayEmployeeId) &&
       (!adminOnlyMyAttendance || ownAssignment.night.length)
@@ -1494,6 +1533,8 @@ function resetRecommendationView() {
   refreshOtRoleOptions();
   elements.manualMriOtInput.value = "";
   elements.manualXrayOtInput.value = "";
+  elements.manualMriOtInput.placeholder = "시간";
+  elements.manualXrayOtInput.placeholder = "시간";
   elements.nightMriSelect.value = "";
   elements.nightXraySelect.value = "";
   elements.nightMriOtInput.value = "";
@@ -1521,6 +1562,7 @@ function resetAttendanceForm(keepName = false) {
   selectedAnnualLeaveDates.clear();
   updateAnnualLeaveView();
   updateSaturdayOffButtonState();
+  updateAttendanceOtDisplay();
 }
 
 function updateAnnualLeaveView() {
@@ -1625,16 +1667,20 @@ function loadSelectedRecordIntoForm() {
   elements.nightXraySelect.value = record?.nightXrayEmployeeId || "";
   elements.manualMriOtInput.value = "";
   elements.manualXrayOtInput.value = "";
+  elements.manualMriOtInput.placeholder = "시간";
+  elements.manualXrayOtInput.placeholder = "시간";
   elements.nightMriOtInput.value = "";
   elements.nightXrayOtInput.value = "";
 
   if (record?.mriEmployeeId) {
     const mriAttendance = getAttendanceRecord(record.date, getEmployeeName(record.mriEmployeeId));
-    elements.manualMriOtInput.value = mriAttendance?.otEarned || "";
+    elements.manualMriOtInput.value = mriAttendance?.earlyOt ?? "";
+    elements.manualMriOtInput.placeholder = mriAttendance && mriAttendance.earlyOt == null ? "기존 조출 구분 필요" : "시간";
   }
   if (record?.xrayEmployeeId) {
     const xrayAttendance = getAttendanceRecord(record.date, getEmployeeName(record.xrayEmployeeId));
-    elements.manualXrayOtInput.value = xrayAttendance?.otEarned || "";
+    elements.manualXrayOtInput.value = xrayAttendance?.earlyOt ?? "";
+    elements.manualXrayOtInput.placeholder = xrayAttendance && xrayAttendance.earlyOt == null ? "기존 조출 구분 필요" : "시간";
   }
   if (record?.nightMriEmployeeId) {
     const nightMriAttendance = getAttendanceRecord(record.date, getEmployeeName(record.nightMriEmployeeId));
@@ -1676,6 +1722,65 @@ function hasAttendanceConflict(record) {
     .some(fieldName => toNumberOrZero(record[fieldName]) !== 0);
 }
 
+function ensureOtSplit(date, employeeId) {
+  const record = getAttendanceRecord(date, employeeId);
+  if (!record || OtModel.getSplit(record)) return true;
+  const assigned = appData.records.some(item => item.date === date && item.needsOt &&
+    [item.mriEmployeeId, item.xrayEmployeeId].includes(employeeId));
+  let earlyOt = 0;
+  if (assigned && record.otEarned !== 0) {
+    const answer = window.prompt(`${date} ${getEmployeeName(employeeId)} 기존 발생 OT ${record.otEarned}시간 중 조출 시간은 몇 시간인가요? 나머지는 기타 OT로 보존합니다.`, "");
+    if (answer === null || !answer.trim()) return false;
+    earlyOt = Number(answer);
+  }
+  try {
+    Object.assign(record, normalizeAttendanceRecord(OtModel.resolveLegacy(record, earlyOt)));
+    return true;
+  } catch (error) {
+    showMessage(error.message, "error");
+    return false;
+  }
+}
+
+function getEarlyOt(date, employeeId) {
+  return getAttendanceRecord(date, employeeId)?.earlyOt ?? 0;
+}
+
+function updateAttendanceOtDisplay() {
+  const record = getAttendanceRecord(elements.selectedDateInput.value, elements.attendanceNameSelect.value);
+  const unresolved = record && record.earlyOt == null;
+  const earlyOt = record?.earlyOt ?? 0;
+  document.querySelector("#attendanceEarlyOtLabel").textContent = unresolved
+    ? "(조출: 구분 필요)" : `(조출: ${earlyOt}시간)`;
+  document.querySelector("#attendanceOtTotal").textContent = unresolved
+    ? `기존 발생 OT 합계: ${record.otEarned}시간`
+    : `발생 OT 합계: ${earlyOt + toNumberOrZero(elements.attendanceOtInput.value)}시간`;
+}
+
+function reconcileAssignments(date, next, times) {
+  const previous = appData.records.find(item => item.date === date);
+  const oldEarly = previous?.needsOt ? [previous.mriEmployeeId, previous.xrayEmployeeId] : [];
+  const newEarly = next.needsOt ? [next.mriEmployeeId, next.xrayEmployeeId] : [];
+  const oldNight = [previous?.nightMriEmployeeId, previous?.nightXrayEmployeeId].filter(Boolean);
+  const newNight = [next.nightMriEmployeeId, next.nightXrayEmployeeId].filter(Boolean);
+  for (const id of new Set([...oldEarly, ...newEarly])) {
+    if (!ensureOtSplit(date, id)) return false;
+  }
+  for (const id of oldEarly.filter(id => !newEarly.includes(id))) {
+    upsertAttendanceTime(date, id, "ot", 0);
+  }
+  for (const id of oldNight.filter(id => !newNight.includes(id))) {
+    upsertAttendanceTime(date, id, "nightOt", 0);
+  }
+  if (next.needsOt) {
+    upsertAttendanceTime(date, next.mriEmployeeId, "ot", times.mri);
+    upsertAttendanceTime(date, next.xrayEmployeeId, "ot", times.xray);
+  }
+  if (next.nightMriEmployeeId) upsertAttendanceTime(date, next.nightMriEmployeeId, "nightOt", times.nightMri);
+  if (next.nightXrayEmployeeId) upsertAttendanceTime(date, next.nightXrayEmployeeId, "nightOt", times.nightXray);
+  return true;
+}
+
 function upsertAttendanceTime(date, employeeId, fieldName, value) {
   if (value === "") return;
 
@@ -1684,7 +1789,7 @@ function upsertAttendanceTime(date, employeeId, fieldName, value) {
 
   const existingRecord = getAttendanceRecord(date, employeeId) || normalizeAttendanceRecord({ date, employeeId, name });
   const updates = fieldName === "ot"
-    ? { otEarned: toNumberOrZero(value) }
+    ? { earlyOt: toNumberOrZero(value), otherOt: existingRecord.otherOt ?? existingRecord.otEarned }
     : { [fieldName]: toNumberOrZero(value) };
   const updatedRecord = normalizeAttendanceRecord({
     ...existingRecord,
@@ -1757,7 +1862,7 @@ async function saveSaturdayOff() {
       upsertAttendanceRecordByEmployeeId(date, employee.id, { off: nextOff, holidayOt: 4 });
   });
 
-  await saveData();
+  if (!await saveData()) return;
   renderAll();
   flashSavedDates([date]);
   closeInputPopups();
@@ -1767,6 +1872,11 @@ function loadAttendanceRecordIntoForm(date, name) {
   const employeeId = typeof name === "object"
     ? name?.id
     : appData.employees.find(employee => employee.name === name)?.id || name;
+  if (!ensureOtSplit(date, employeeId)) {
+    resetAttendanceForm();
+    showMessage("기존 조출 시간을 확인한 뒤 근태를 수정해 주세요.", "error");
+    return;
+  }
   const record = getAttendanceRecord(date, employeeId);
   elements.attendanceNameSelect.value = employeeId || "";
   updateSaturdayOffButtonState();
@@ -1776,7 +1886,7 @@ function loadAttendanceRecordIntoForm(date, name) {
     return;
   }
 
-  elements.attendanceOtInput.value = record.otEarned || "";
+  elements.attendanceOtInput.value = record.otherOt || "";
   elements.attendanceOtUsedInput.value = record.otUsed || "";
   elements.attendanceNightOtInput.value = record.nightOt || "";
   elements.attendanceHolidayOtInput.value = record.holidayOt || "";
@@ -1811,11 +1921,17 @@ async function saveAttendanceRecord() {
   }
   syncAttendanceNoteWithOtInputs();
 
+  if (!ensureOtSplit(date, employeeId)) return;
+  if (!Number.isFinite(Number(elements.attendanceOtInput.value)) || Number(elements.attendanceOtInput.value) < 0) {
+    showMessage("기타 OT는 0 이상의 숫자로 입력해 주세요.", "error");
+    return;
+  }
   const attendanceRecord = normalizeAttendanceRecord({
     date,
     employeeId,
     name,
-    otEarned: elements.attendanceOtInput.value,
+    earlyOt: getEarlyOt(date, employeeId),
+    otherOt: toNumberOrZero(elements.attendanceOtInput.value),
     otUsed: normalizeOtUsedValue(elements.attendanceOtUsedInput.value),
     nightOt: elements.attendanceNightOtInput.value,
     holidayOt: elements.attendanceHolidayOtInput.value,
@@ -1829,7 +1945,7 @@ async function saveAttendanceRecord() {
   appData.attendanceRecords = appData.attendanceRecords.filter(record => !(record.date === date && record.employeeId === employeeId));
   appData.attendanceRecords.push(attendanceRecord);
 
-  await saveData();
+  if (!await saveData()) return;
   renderAll();
   resetAttendanceForm(true);
   flashSavedDates([date]);
@@ -1863,7 +1979,7 @@ async function saveAnnualLeaveRecords() {
     upsertAttendanceRecordByEmployeeId(date, employeeId, { off: "연차", manualNote: memo });
   });
 
-  await saveData();
+  if (!await saveData()) return;
   selectedAnnualLeaveDates.clear();
   renderAll();
   resetAttendanceForm(true);
@@ -1874,10 +1990,18 @@ async function saveAnnualLeaveRecords() {
 
 async function deleteAttendanceRecord(date, employeeId) {
   const name = getEmployeeName(employeeId);
-  if (!window.confirm(`${date} ${name} 근태 기록을 삭제할까요?`)) return;
+  if (!window.confirm(`${date} ${name} 근태 기록을 삭제할까요? 배정된 조출·야간 시간은 유지됩니다.`)) return;
 
+  if (!ensureOtSplit(date, employeeId)) return;
+  const existing = getAttendanceRecord(date, employeeId);
+  const work = appData.records.find(record => record.date === date);
+  const keepNight = [work?.nightMriEmployeeId, work?.nightXrayEmployeeId].includes(employeeId);
   appData.attendanceRecords = appData.attendanceRecords.filter(record => !(record.date === date && record.employeeId === employeeId));
-  await saveData();
+  if (existing?.earlyOt || (keepNight && existing?.nightOt)) {
+    appData.attendanceRecords.push(normalizeAttendanceRecord({ date, employeeId, name,
+      earlyOt: existing.earlyOt || 0, otherOt: 0, nightOt: keepNight ? existing.nightOt : 0 }));
+  }
+  if (!await saveData()) return;
   renderAll();
   resetAttendanceForm();
   showMessage("근태 기록이 삭제되었습니다.");
@@ -1952,6 +2076,14 @@ async function saveRecord() {
     : `${date}에 조기출근/야간근무가 없는 것으로 저장할까요?`;
   if (!window.confirm(confirmText)) return;
 
+  for (const value of [mriOtValue, xrayOtValue, nightMriOtValue, nightXrayOtValue]) {
+    if (!Number.isFinite(Number(value)) || Number(value) < 0) {
+      showMessage("근무 시간은 0 이상의 숫자로 입력해 주세요.", "error");
+      return;
+    }
+  }
+  if (!reconcileAssignments(date, { needsOt, mriEmployeeId, xrayEmployeeId, nightMriEmployeeId, nightXrayEmployeeId },
+    { mri: mriOtValue, xray: xrayOtValue, nightMri: nightMriOtValue, nightXray: nightXrayOtValue })) return;
   appData.records = appData.records.filter(record => record.date !== date);
   appData.records.push({
     date,
@@ -1962,17 +2094,7 @@ async function saveRecord() {
     nightXrayEmployeeId
   });
 
-  if (needsOt) {
-    upsertAttendanceTime(date, mriEmployeeId, "ot", mriOtValue);
-    upsertAttendanceTime(date, xrayEmployeeId, "ot", xrayOtValue);
-  }
-
-  if (hasNightInput) {
-    upsertAttendanceTime(date, nightMriEmployeeId, "nightOt", nightMriOtValue);
-    upsertAttendanceTime(date, nightXrayEmployeeId, "nightOt", nightXrayOtValue);
-  }
-
-  await saveData();
+  if (!await saveData()) return;
   renderAll();
   loadSelectedRecordIntoForm();
   flashSavedDates([date]);
@@ -1997,7 +2119,7 @@ async function deleteEmployee(employeeId) {
   if (!employee) return;
   if (!window.confirm(`${employee.name} 직원을 삭제할까요? 기존 기록은 이름 대신 '-'로 보일 수 있습니다.`)) return;
   appData.employees = appData.employees.filter(item => item.id !== employeeId);
-  await saveData();
+  if (!await saveData()) return;
   renderAll();
   showMessage("직원이 삭제되었습니다.");
 }
@@ -2013,7 +2135,7 @@ async function moveEmployee(employeeId, direction) {
   [nextEmployees[currentIndex], nextEmployees[targetIndex]] = [nextEmployees[targetIndex], nextEmployees[currentIndex]];
   appData.employees = nextEmployees;
 
-  await saveData();
+  if (!await saveData()) return;
   renderAll();
   loadSelectedRecordIntoForm();
   showMessage("직원 순서를 저장했습니다. 같은 점수일 때 위에 있는 직원이 먼저 추천됩니다.");
@@ -2036,8 +2158,9 @@ function editRecord(dateText) {
 
 async function deleteRecord(dateText) {
   if (!window.confirm(`${dateText} 기록을 삭제할까요?`)) return;
+  if (!reconcileAssignments(dateText, { needsOt: false }, {})) return;
   appData.records = appData.records.filter(record => record.date !== dateText);
-  await saveData();
+  if (!await saveData()) return;
   renderAll();
   showMessage("기록이 삭제되었습니다.");
 }
@@ -2109,7 +2232,7 @@ function backupJson() {
 
 function restoreJson(file) {
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     try {
       const parsedData = JSON.parse(reader.result);
       validateImportedData(parsedData);
@@ -2120,7 +2243,7 @@ function restoreJson(file) {
       }
 
       appData = restoredData;
-      saveData();
+      if (!await saveData()) return;
       renderAll();
       loadSelectedRecordIntoForm();
       showMessage("백업 파일을 복원했습니다.");
@@ -2229,6 +2352,8 @@ async function loadServerSyncState() {
 }
 
 async function reloadServerLatestData() {
+  if (pendingSaves) return;
+  if (hasUnsavedChanges && !window.confirm("저장되지 않은 변경을 버리고 서버 최신본을 불러올까요? 필요하면 먼저 JSON 백업으로 보관해 주세요.")) return;
   try {
     await loadServerCalendarMonth();
     await loadServerUsersAndEmployees();
@@ -2252,8 +2377,9 @@ async function checkServerSession() {
       return;
     }
     updateAdminAttendanceButton(payload.user);
-    serverAutoSyncEnabled = true;
+    serverAutoSyncEnabled = false;
     showAdminApp();
+    elements.adminAppShell.inert = true;
     setServerStatus(`${payload.user.username} 계정으로 로그인 중입니다. 권한: ${payload.user.role}`);
     try {
       await loadServerSyncState();
@@ -2262,6 +2388,8 @@ async function checkServerSession() {
       await loadServerMonthlySummary();
       await loadServerDateMemos();
     } catch (loadError) {
+      elements.adminAppShell.inert = false;
+      setServerRecoveryButtonVisible(true);
       setServerStatus(loadError.message || "서버 데이터를 불러오지 못했습니다.", "error");
     }
   } catch (error) {
@@ -2294,8 +2422,9 @@ async function loginServerAdmin(usernameOverride = "", passwordOverride = "") {
       return;
     }
     updateAdminAttendanceButton(payload.user);
-    serverAutoSyncEnabled = true;
+    serverAutoSyncEnabled = false;
     showAdminApp();
+    elements.adminAppShell.inert = true;
     setServerStatus(`${payload.user.username} 계정으로 로그인했습니다. 권한: ${payload.user.role}`);
     try {
       await loadServerSyncState();
@@ -2304,6 +2433,8 @@ async function loginServerAdmin(usernameOverride = "", passwordOverride = "") {
       await loadServerMonthlySummary();
       await loadServerDateMemos();
     } catch (loadError) {
+      elements.adminAppShell.inert = false;
+      setServerRecoveryButtonVisible(true);
       setServerStatus(loadError.message || "서버 데이터를 불러오지 못했습니다.", "error");
     }
   } catch (error) {
@@ -2313,6 +2444,8 @@ async function loginServerAdmin(usernameOverride = "", passwordOverride = "") {
 }
 
 async function logoutServerAdmin() {
+  if (pendingSaves) return;
+  if (hasUnsavedChanges && !window.confirm("저장되지 않은 변경이 있습니다. 로그아웃할까요?")) return;
   try {
     await serverRequest("/api/auth/logout", { method: "POST", body: "{}" });
     serverAutoSyncEnabled = false;
@@ -2387,13 +2520,17 @@ async function loadServerCalendarMonth() {
     appData = normalizeData(payload.data);
     serverSyncVersion = payload.version ?? 0;
     serverViewMode = true;
+    hasUnsavedChanges = false;
     serverAutoSyncEnabled = true;
+    elements.adminAppShell.inert = false;
     setServerRecoveryButtonVisible(false);
     renderAll();
     loadSelectedRecordIntoForm();
     setServerStatus(`${month} 선택 월 기준으로 서버 전체 데이터를 불러왔습니다.`);
   } catch (error) {
+    serverAutoSyncEnabled = false;
     setServerStatus(error.message || "서버 달력을 불러오지 못했습니다.", "error");
+    throw error;
   }
 }
 
@@ -2635,6 +2772,7 @@ document.querySelectorAll("[data-close-saturday-off]").forEach(button => {
 });
 
 document.addEventListener("click", event => {
+  if (pendingSaves) return;
   if (
     event.target.closest("#dateInputMenu") ||
     event.target.closest("button[data-date]") ||
@@ -2648,6 +2786,7 @@ document.addEventListener("click", event => {
 });
 
 document.addEventListener("keydown", event => {
+  if (pendingSaves) return;
   if (event.key !== "Escape") return;
   closeDateInputMenu();
   setInputSectionVisibility("");
@@ -2803,7 +2942,7 @@ elements.employeeForm.addEventListener("submit", async event => {
     appData.employees.push(employee);
   }
 
-  await saveData();
+  if (!await saveData()) return;
   resetEmployeeForm();
   setEmployeeFormVisible(false);
   renderAll();
@@ -2862,3 +3001,4 @@ async function initialize() {
 }
 
 initialize();
+
