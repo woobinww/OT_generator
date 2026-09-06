@@ -54,5 +54,9 @@ jobs:
           if ($response.StatusCode -ne 200) {
             throw "Local health check failed with status $($response.StatusCode)."
           }
+          $health = (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/api/health).Content | ConvertFrom-Json
+          if (-not $health.features.otSplit -or -not $health.features.backups) {
+            throw '새 기능(OT 분리 또는 백업)이 실행 중인 서버에 반영되지 않았습니다.'
+          }
 
           Write-Host "Deployed commit: $env:GITHUB_SHA"

@@ -54,7 +54,7 @@ function createApp({ database, logger, backupManager }) {
 
 async function handleApiRequest({ request, response, url, database, logger, backups }) {
   if (request.method === "GET" && url.pathname === "/api/health") {
-    sendJson(response, 200, { ok: true });
+    sendJson(response, 200, { ok: true, features: { otSplit: true, backups: true }, pid: process.pid });
     return;
   }
 
