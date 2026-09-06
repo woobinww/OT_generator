@@ -1,4 +1,4 @@
-const { existsSync, mkdirSync, readdirSync, unlinkSync } = require("node:fs");
+const { copyFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } = require("node:fs");
 const path = require("node:path");
 
 const defaultBackupDirectory = path.join(__dirname, "..", "data", "backups");
@@ -32,7 +32,19 @@ function createBackupManager(database, options = {}) {
     backups.slice(Math.max(0, retention)).forEach(item => unlinkSync(item.path));
   }
 
-  return { createBackup, listBackups, prune };
+  function restoreBackup(fileName) {
+    const item = listBackups().find(candidate => candidate.fileName === fileName);
+    if (!item) throw new Error("선택한 백업 파일을 찾을 수 없습니다.");
+    const databasePath = process.env.DB_PATH || path.join(__dirname, "..", "data", "work-attendance.sqlite");
+    // Preserve the currently running database before replacing it.
+    createBackup("before-restore");
+    database.close();
+    copyFileSync(item.path, databasePath);
+    setTimeout(() => process.exit(0), 100);
+    return { fileName: item.fileName };
+  }
+
+  return { createBackup, listBackups, prune, restoreBackup };
 }
 
 module.exports = { createBackupManager };

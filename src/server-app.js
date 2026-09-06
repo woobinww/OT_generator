@@ -203,6 +203,16 @@ async function handleApiRequest({ request, response, url, database, logger, back
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/admin/backups/restore") {
+    const session = requireRole(request, response, "admin");
+    if (!session) return;
+    const body = await readJsonBody(request);
+    const backup = backups.restoreBackup(String(body.fileName || ""));
+    recordAudit(database, "data.backup_restored", session, { details: { fileName: backup.fileName } });
+    sendJson(response, 202, { ok: true, backup, restarting: true });
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/admin/date-memos") {
     const session = requireRole(request, response, "admin");
     if (!session) return;

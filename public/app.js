@@ -172,6 +172,8 @@ const elements = {
   serverStatusBox: document.querySelector("#serverStatusBox"),
   serverReloadButton: document.querySelector("#serverReloadButton"),
   serverBackupButton: document.querySelector("#serverBackupButton"),
+  serverBackupSelect: document.querySelector("#serverBackupSelect"),
+  serverRestoreButton: document.querySelector("#serverRestoreButton"),
   serverLogoutButton: document.querySelector("#serverLogoutButton"),
   serverImportFileInput: document.querySelector("#serverImportFileInput"),
   serverImportButton: document.querySelector("#serverImportButton"),
@@ -2371,8 +2373,27 @@ async function createServerBackup() {
   try {
     const payload = await serverRequest("/api/admin/backups", { method: "POST", body: "{}" });
     setServerStatus(`서버 백업을 생성했습니다: ${payload.backup.fileName}`);
+    await loadServerBackups();
   } catch (error) {
     setServerStatus(error.message || "서버 백업을 생성하지 못했습니다.", "error");
+  }
+}
+
+async function loadServerBackups() {
+  const payload = await serverRequest("/api/admin/backups");
+  elements.serverBackupSelect.innerHTML = payload.backups.length
+    ? payload.backups.map(item => `<option value="${escapeHtml(item.fileName)}">${escapeHtml(item.fileName)}</option>`).join("")
+    : `<option value="">백업 없음</option>`;
+}
+
+async function restoreServerBackup() {
+  const fileName = elements.serverBackupSelect.value;
+  if (!fileName || !window.confirm(`${fileName}으로 서버를 복원할까요? 현재 데이터는 복원 전에 자동 백업됩니다.`)) return;
+  try {
+    await serverRequest("/api/admin/backups/restore", { method: "POST", body: JSON.stringify({ fileName }) });
+    setServerStatus("복원을 완료했습니다. 서버가 재시작되므로 잠시 후 페이지를 새로고침해 주세요.");
+  } catch (error) {
+    setServerStatus(error.message || "백업 복원에 실패했습니다.", "error");
   }
 }
 
@@ -2396,7 +2417,8 @@ async function checkServerSession() {
       await loadServerCalendarMonth();
       await loadServerUsersAndEmployees();
       await loadServerMonthlySummary();
-      await loadServerDateMemos();
+    await loadServerDateMemos();
+      await loadServerBackups();
     } catch (loadError) {
       elements.adminAppShell.inert = false;
       setServerRecoveryButtonVisible(true);
@@ -2441,7 +2463,8 @@ async function loginServerAdmin(usernameOverride = "", passwordOverride = "") {
       await loadServerCalendarMonth();
       await loadServerUsersAndEmployees();
       await loadServerMonthlySummary();
-      await loadServerDateMemos();
+    await loadServerDateMemos();
+      await loadServerBackups();
     } catch (loadError) {
       elements.adminAppShell.inert = false;
       setServerRecoveryButtonVisible(true);
@@ -2893,6 +2916,7 @@ elements.serverLogoutButton.addEventListener("click", logoutServerAdmin);
 elements.serverImportButton.addEventListener("click", importLocalBackupToServer);
 elements.serverReloadButton.addEventListener("click", reloadServerLatestData);
 elements.serverBackupButton.addEventListener("click", createServerBackup);
+elements.serverRestoreButton.addEventListener("click", restoreServerBackup);
 elements.serverUsersRefreshButton.addEventListener("click", loadServerUsersAndEmployees);
 elements.serverCreateUserToggleButton.addEventListener("click", () => openServerAccountForm(elements.serverCreateUserForm));
 elements.serverChangePasswordToggleButton.addEventListener("click", () => openServerAccountForm(elements.serverChangePasswordForm));
