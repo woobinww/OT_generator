@@ -15,7 +15,9 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       HOST: '127.0.0.1',
-      PORT: 3000
+      PORT: 3000,
+      DB_PATH: 'D:/user/documents/OT_generator/data/work-attendance.sqlite',
+      BACKUP_DIR: 'D:/user/documents/OT_generator/data/backups'
     }
   }]
 };
