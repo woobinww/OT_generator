@@ -597,6 +597,8 @@ function getUserCalendarData(database, month, viewerEmployeeId) {
           name: record.name,
           ot: isMine ? record.ot : 0,
           otEarned: isMine ? record.otEarned : 0,
+          earlyOt: isMine ? record.earlyOt : 0,
+          otherOt: isMine ? record.otherOt : 0,
           otUsed: isMine ? record.otUsed : 0,
           nightOt: isMine ? record.nightOt : 0,
           holidayOt: isMine ? record.holidayOt : 0,

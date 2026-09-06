@@ -1191,8 +1191,10 @@ function buildCalendarMiddleText(dateText, employeeId = "") {
       const name = getGivenNameOnlyByName(record.name);
       const details = [];
       if (record.off) details.push(getShortOffLabel(record.off));
-      if (record.otEarned !== 0 && !topOtEmployeeIds.has(record.employeeId)) {
-        details.push(`OT ${record.otEarned}`);
+      const otherOt = record.otherOt ?? record.otEarned;
+      if (otherOt !== 0) {
+        const label = record.otherOt == null && topOtEmployeeIds.has(record.employeeId) ? "OT 합계(구분 전)" : "OT";
+        details.push(`${label} ${otherOt}`);
       }
       if (record.otUsed < 0) details.push(`OT ${record.otUsed}`);
       if (record.flexOt < 0) details.push(`탄력 ${record.flexOt}`);
@@ -1219,8 +1221,8 @@ function buildCalendarTooltipText(dateText, record, middleText, missingWorkTime,
     const mriAttendance = getAttendanceRecord(record.date, getEmployeeName(record.mriEmployeeId));
     const xrayAttendance = getAttendanceRecord(record.date, getEmployeeName(record.xrayEmployeeId));
     lines.push(employeeId
-      ? `OT: ${ownAssignment.ot.map(assignmentId => formatOwnCalendarAssignment(dateText, assignmentId, "otEarned")).join("/")}`
-      : `OT: ${getGivenNameOnly(record.mriEmployeeId)}${formatTimeSuffix(mriAttendance?.otEarned)}/${getGivenNameOnly(record.xrayEmployeeId)}${formatTimeSuffix(xrayAttendance?.otEarned)}`);
+      ? `조: ${ownAssignment.ot.map(assignmentId => formatOwnCalendarAssignment(dateText, assignmentId, "earlyOt")).join("/")}`
+      : `조: ${formatEarlyCalendarName(dateText, record.mriEmployeeId)}/${formatEarlyCalendarName(dateText, record.xrayEmployeeId)}`);
   }
 
   const attendanceLines = appData.attendanceRecords
@@ -1260,6 +1262,11 @@ function buildAttendanceTooltipLine(record, mineOnly = false) {
     details.push(getShortOffLabel(record.off));
   }
 
+  const work = appData.records.find(item => item.date === record.date);
+  const assigned = work?.needsOt && [work.mriEmployeeId, work.xrayEmployeeId].includes(record.employeeId);
+  const otherOt = record.otherOt ?? record.otEarned;
+  if (otherOt) details.push(`${record.otherOt == null && assigned ? "OT 합계(구분 전)" : "OT"} ${otherOt}`);
+  if (record.earlyOt != null && record.otEarned) details.push(`발생 OT 합계 ${record.otEarned}`);
   if (record.otUsed < 0) details.push(`OT ${record.otUsed}`);
   if (record.flexOt !== 0) details.push(`탄력 ${record.flexOt}`);
   if (record.holidayOt !== 0) details.push(`휴일 ${record.holidayOt}`);
@@ -1276,7 +1283,7 @@ function hasMissingWorkTime(record, employeeId = "") {
   if (employeeId) {
     const ownAssignment = getOwnAssignmentIds(record, employeeId);
     if (record.needsOt && ownAssignment.ot.length) {
-      return ownAssignment.ot.some(assignmentId => !getAttendanceRecord(record.date, getEmployeeName(assignmentId))?.otEarned);
+      return ownAssignment.ot.some(assignmentId => !getAttendanceRecord(record.date, getEmployeeName(assignmentId))?.earlyOt);
     }
     if (ownAssignment.night.length) {
       return ownAssignment.night.some(assignmentId => !getAttendanceRecord(record.date, getEmployeeName(assignmentId))?.nightOt);
@@ -1287,7 +1294,7 @@ function hasMissingWorkTime(record, employeeId = "") {
   if (record.needsOt) {
     const mriAttendance = getAttendanceRecord(record.date, getEmployeeName(record.mriEmployeeId));
     const xrayAttendance = getAttendanceRecord(record.date, getEmployeeName(record.xrayEmployeeId));
-    if (!mriAttendance?.otEarned || !xrayAttendance?.otEarned) return true;
+    if (!mriAttendance?.earlyOt || !xrayAttendance?.earlyOt) return true;
   }
 
   if (record.nightMriEmployeeId || record.nightXrayEmployeeId) {
@@ -1308,8 +1315,16 @@ function getOwnAssignmentIds(record, employeeId) {
   };
 }
 
+function formatEarlyCalendarName(dateText, employeeId) {
+  return `${getGivenNameOnly(employeeId)}(${formatOwnCalendarAssignment(dateText, employeeId, "earlyOt")})`;
+}
+
 function formatOwnCalendarAssignment(dateText, employeeId, fieldName) {
   const attendance = getAttendanceRecord(dateText, employeeId);
+  if (fieldName === "earlyOt") {
+    if (!attendance) return "미입력";
+    return attendance.earlyOt == null ? "미확인" : formatNumberForNote(attendance.earlyOt);
+  }
   const value = Number(attendance?.[fieldName] || 0);
   return value > 0 ? formatNumberForNote(value) : "있음";
 }
@@ -1397,8 +1412,8 @@ function renderCalendar() {
     }
     const otText = record?.needsOt && (!adminOnlyMyAttendance || ownAssignment.ot.length)
       ? adminOnlyMyAttendance
-        ? `OT: ${ownAssignment.ot.map(employeeId => formatOwnCalendarAssignment(dateText, employeeId, "otEarned")).join("/")}`
-        : `OT: ${getGivenNameOnly(record.mriEmployeeId)}/${getGivenNameOnly(record.xrayEmployeeId)}`
+        ? `조: ${ownAssignment.ot.map(employeeId => formatOwnCalendarAssignment(dateText, employeeId, "earlyOt")).join("/")}`
+        : `조: ${formatEarlyCalendarName(dateText, record.mriEmployeeId)}/${formatEarlyCalendarName(dateText, record.xrayEmployeeId)}`
       : "";
     const nightText = (record?.nightMriEmployeeId || record?.nightXrayEmployeeId) &&
       (!adminOnlyMyAttendance || ownAssignment.night.length)

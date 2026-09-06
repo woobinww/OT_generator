@@ -288,9 +288,9 @@ function buildCalendarDayContent(dateText, data, viewerEmployeeId, mineOnly = fa
     ? `조: ${mineOnly
       ? [record.mriEmployeeId, record.xrayEmployeeId]
         .filter(isMine)
-        .map(employeeId => formatOwnAssignment(attendanceRecords, employeeId, viewerEmployeeId, "otEarned"))
+        .map(employeeId => formatOwnAssignment(attendanceRecords, employeeId, viewerEmployeeId, "earlyOt"))
         .join("/")
-      : `${formatAssignmentName(data, attendanceRecords, record.mriEmployeeId, viewerEmployeeId, "otEarned")}/${formatAssignmentName(data, attendanceRecords, record.xrayEmployeeId, viewerEmployeeId, "otEarned")}`}`
+      : `${formatAssignmentName(data, attendanceRecords, record.mriEmployeeId, viewerEmployeeId, "earlyOt")}/${formatAssignmentName(data, attendanceRecords, record.xrayEmployeeId, viewerEmployeeId, "earlyOt")}`}`
     : "";
   const nightText = (record?.nightMriEmployeeId || record?.nightXrayEmployeeId) &&
     (!mineOnly || isMine(record.nightMriEmployeeId) || isMine(record.nightXrayEmployeeId))
@@ -329,12 +329,13 @@ function buildAttendanceLine(recordItem, viewerEmployeeId, workRecord, mineOnly 
   const details = [];
   if (recordItem.off) details.push(shortOff(recordItem.off));
   if (recordItem.otUsed < 0) details.push(`OT ${recordItem.otUsed}`);
-  if (isMine && recordItem.otEarned > 0 && !isAssignedToEarlyOt) details.push(`OT ${recordItem.otEarned}`);
+  const otherOt = recordItem.otherOt ?? recordItem.otEarned;
+  if (isMine && otherOt > 0) details.push(`${recordItem.otherOt == null && isAssignedToEarlyOt ? "OT 합계(구분 전)" : "OT"} ${otherOt}`);
   if (isMine && recordItem.holidayOt > 0) details.push(`휴일 ${recordItem.holidayOt}`);
   if (recordItem.flexOt < 0) details.push(`탄력 ${recordItem.flexOt}`);
   if (isMine && recordItem.flexOt > 0) details.push(`탄력 ${recordItem.flexOt}`);
   const manualNote = stripAutoOtNotePrefix(recordItem.note);
-  const hasOwnPositiveOt = (recordItem.otEarned > 0 && !isAssignedToEarlyOt) || recordItem.holidayOt > 0;
+  const hasOwnPositiveOt = otherOt > 0 || recordItem.holidayOt > 0;
   if (isMine && hasOwnPositiveOt && manualNote) details.push(manualNote);
   return details.length ? (mineOnly ? details.join(" ") : `${givenName(recordItem.name)} ${details.join(" ")}`) : "";
 }
@@ -342,6 +343,10 @@ function buildAttendanceLine(recordItem, viewerEmployeeId, workRecord, mineOnly 
 function formatOwnAssignment(attendanceRecords, employeeId, viewerEmployeeId, timeField) {
   if (String(employeeId || "") !== String(viewerEmployeeId || "")) return "";
   const attendanceRecord = attendanceRecords.find(item => String(item.employeeId || "") === String(employeeId || ""));
+  if (timeField === "earlyOt") {
+    const time = !attendanceRecord ? "미입력" : attendanceRecord.earlyOt == null ? "미확인" : formatValue(attendanceRecord.earlyOt);
+    return time;
+  }
   const timeValue = Number(attendanceRecord?.[timeField] || 0);
   return timeValue > 0 ? formatValue(timeValue) : "있음";
 }
@@ -358,6 +363,10 @@ function formatAssignmentName(data, attendanceRecords, employeeId, viewerEmploye
   if (String(employee.id) !== String(viewerEmployeeId || "")) return name;
 
   const attendanceRecord = attendanceRecords.find(item => String(item.employeeId || "") === String(employee.id));
+  if (timeField === "earlyOt") {
+    const time = !attendanceRecord ? "미입력" : attendanceRecord.earlyOt == null ? "미확인" : formatValue(attendanceRecord.earlyOt);
+    return `${name}(${time})`;
+  }
   const timeValue = Number(attendanceRecord?.[timeField] || 0);
   return timeValue > 0 ? `${name}(${formatValue(timeValue)})` : name;
 }
@@ -421,3 +430,4 @@ elements.allAttendanceButton.addEventListener("keydown", handleAttendanceModeKey
 elements.myAttendanceButton.addEventListener("keydown", handleAttendanceModeKeydown);
 
 checkSession();
+

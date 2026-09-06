@@ -113,6 +113,31 @@ test('save waits for acknowledgement and serializes version numbers', async () =
   assert.equal(b.run('elements.adminAppShell.inert'), false);
 });
 
+test('admin and employee calendars show early/other hours separately, including legacy and zero', () => {
+  const b = browser();
+  b.run(`appData=normalizeData({employees:[{id:'A',name:'이우빈'},{id:'B',name:'김민수'}],
+    records:[{date:'2026-09-05',needsOt:true,mriEmployeeId:'A',xrayEmployeeId:'B'}],
+    attendanceRecords:[{date:'2026-09-05',employeeId:'A',name:'이우빈',earlyOt:1,otherOt:2},
+      {date:'2026-09-05',employeeId:'B',name:'김민수',earlyOt:1,otherOt:0}]}); renderCalendar();`);
+  assert.match(b.run('elements.calendarGrid.innerHTML'), /조: 우빈\(1\)\/민수\(1\)/);
+  assert.equal(b.run("buildCalendarMiddleText('2026-09-05')"), '우빈 OT 2');
+  assert.equal(b.run("buildCalendarMiddleText('2026-09-05','A')"), 'OT 2');
+  const user = vm.createContext({ data: JSON.parse(b.run('JSON.stringify(appData)')) });
+  const source = fs.readFileSync(require.resolve('../public/user.js'), 'utf8');
+  vm.runInContext(source.slice(source.indexOf('function buildCalendarDayContent'), source.lastIndexOf('elements.monthInput.value = getTodayMonth()')), user);
+  const run = code => vm.runInContext(code, user);
+  assert.equal(run("buildCalendarDayContent('2026-09-05',data,'A').otText"), '조: 우빈(1)/민수');
+  assert.equal(run("buildCalendarDayContent('2026-09-05',data,'A').middleText"), '우빈 OT 2');
+  assert.equal(run("buildCalendarDayContent('2026-09-05',data,'A',true).otText"), '조: 1');
+  assert.equal(run("buildCalendarDayContent('2026-09-05',data,'A',true).middleText"), 'OT 2');
+  assert.equal(run("buildCalendarDayContent('2026-09-05',data,'B').middleText"), '');
+  run('data.attendanceRecords[0].earlyOt=null; data.attendanceRecords[0].otherOt=null');
+  assert.equal(run("buildCalendarDayContent('2026-09-05',data,'A',true).otText"), '조: 미확인');
+  assert.equal(run("buildCalendarDayContent('2026-09-05',data,'A',true).middleText"), 'OT 합계(구분 전) 3');
+  run('data.attendanceRecords[0].earlyOt=0; data.attendanceRecords[0].otherOt=3');
+  assert.equal(run("buildCalendarDayContent('2026-09-05',data,'A',true).otText"), '조: 0');
+});
+
 test('failed save preserves form and does not show success feedback; retry succeeds', async () => {
   const b = browser();
   b.run(`serverAutoSyncEnabled=true; serverSyncVersion=0;
@@ -150,6 +175,16 @@ test('HTTP API/CSV, monthly summary, DB and backup roundtrip retain the same tot
   assert.equal(full.data.attendanceRecords[0].otEarned, 3);
   assert.equal(full.data.attendanceRecords[0].earlyOt, 1);
   assert.equal(full.data.attendanceRecords[1].earlyOt, null);
+  const created = await fetch(`${url}/api/admin/users`, {method:'POST',headers:{cookie},body:JSON.stringify({username:'calendar-viewer',password:'test-password',employeeId:full.data.employees[0].id})});
+  assert.equal(created.status, 201);
+  const viewerLogin = await fetch(`${url}/api/auth/login`, {method:'POST',body:JSON.stringify({username:'calendar-viewer',password:'test-password'})});
+  const viewerCookie = viewerLogin.headers.get('set-cookie').split(';')[0];
+  const calendar = await (await fetch(`${url}/api/calendar?month=2026-09`,{headers:{cookie:viewerCookie}})).json();
+  assert.equal(calendar.data.attendanceRecords[0].earlyOt, 1);
+  assert.equal(calendar.data.attendanceRecords[0].otherOt, 2);
+  assert.equal(calendar.data.attendanceRecords[1].earlyOt, 0);
+  assert.equal(calendar.data.attendanceRecords[1].otherOt, 0);
+  assert.equal(calendar.data.attendanceRecords[1].otEarned, 0);
   const key = process.env.INTEGRATION_KEY || 'local-integration-key';
   const getCsv = async () => (await fetch(`${url}/api/integration/attendance.csv?month=2026-09`,{headers:{'x-integration-key':key}})).text();
   const csv = await getCsv();
