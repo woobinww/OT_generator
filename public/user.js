@@ -284,13 +284,16 @@ function buildCalendarDayContent(dateText, data, viewerEmployeeId, mineOnly = fa
     ? dayAttendanceRecords.filter(item => String(item.employeeId || "") === String(viewerEmployeeId || ""))
     : dayAttendanceRecords;
   const isMine = employeeId => String(employeeId || "") === String(viewerEmployeeId || "");
+  const ownEarlyAssignments = mineOnly
+    ? [record?.mriEmployeeId, record?.xrayEmployeeId]
+      .filter(isMine)
+      .map(employeeId => formatOwnAssignment(attendanceRecords, employeeId, viewerEmployeeId, "earlyOt"))
+      .filter(Boolean)
+    : [];
   const otText = record?.needsOt && (!mineOnly || isMine(record.mriEmployeeId) || isMine(record.xrayEmployeeId))
-    ? `조: ${mineOnly
-      ? [record.mriEmployeeId, record.xrayEmployeeId]
-        .filter(isMine)
-        .map(employeeId => formatOwnAssignment(attendanceRecords, employeeId, viewerEmployeeId, "earlyOt"))
-        .join("/")
-      : `${formatAssignmentName(data, attendanceRecords, record.mriEmployeeId, viewerEmployeeId, "earlyOt")}/${formatAssignmentName(data, attendanceRecords, record.xrayEmployeeId, viewerEmployeeId, "earlyOt")}`}`
+    ? `${mineOnly
+      ? `조${ownEarlyAssignments.length ? `: ${ownEarlyAssignments.join("/")}` : ""}`
+      : `조: ${formatAssignmentName(data, attendanceRecords, record.mriEmployeeId, viewerEmployeeId, "earlyOt")}/${formatAssignmentName(data, attendanceRecords, record.xrayEmployeeId, viewerEmployeeId, "earlyOt")}`}`
     : "";
   const nightText = (record?.nightMriEmployeeId || record?.nightXrayEmployeeId) &&
     (!mineOnly || isMine(record.nightMriEmployeeId) || isMine(record.nightXrayEmployeeId))
@@ -344,7 +347,7 @@ function formatOwnAssignment(attendanceRecords, employeeId, viewerEmployeeId, ti
   if (String(employeeId || "") !== String(viewerEmployeeId || "")) return "";
   const attendanceRecord = attendanceRecords.find(item => String(item.employeeId || "") === String(employeeId || ""));
   if (timeField === "earlyOt") {
-    const time = !attendanceRecord ? "미입력" : attendanceRecord.earlyOt == null ? "미확인" : formatValue(attendanceRecord.earlyOt);
+    const time = !attendanceRecord ? "미입력" : attendanceRecord.earlyOt == null ? "" : formatValue(attendanceRecord.earlyOt);
     return time;
   }
   const timeValue = Number(attendanceRecord?.[timeField] || 0);
@@ -364,8 +367,8 @@ function formatAssignmentName(data, attendanceRecords, employeeId, viewerEmploye
 
   const attendanceRecord = attendanceRecords.find(item => String(item.employeeId || "") === String(employee.id));
   if (timeField === "earlyOt") {
-    const time = !attendanceRecord ? "미입력" : attendanceRecord.earlyOt == null ? "미확인" : formatValue(attendanceRecord.earlyOt);
-    return `${name}(${time})`;
+    const time = !attendanceRecord ? "미입력" : attendanceRecord.earlyOt == null ? "" : formatValue(attendanceRecord.earlyOt);
+    return time ? `${name}(${time})` : name;
   }
   const timeValue = Number(attendanceRecord?.[timeField] || 0);
   return timeValue > 0 ? `${name}(${formatValue(timeValue)})` : name;
@@ -430,4 +433,3 @@ elements.allAttendanceButton.addEventListener("keydown", handleAttendanceModeKey
 elements.myAttendanceButton.addEventListener("keydown", handleAttendanceModeKeydown);
 
 checkSession();
-

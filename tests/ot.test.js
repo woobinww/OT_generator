@@ -53,19 +53,23 @@ test('assignment replacement preserves other OT and additional night worker', ()
   assert.equal(b.run("getAttendanceRecord('2026-09-05','D').nightOt"), 3);
 });
 
-test('legacy split is explicit, total-preserving, cancellable, and validated', () => {
+test('legacy split derives other OT from the saved assignment time', () => {
   const b = browser();
   b.run(`appData.records=[{date:'2026-09-05',needsOt:true,mriEmployeeId:'A',xrayEmployeeId:'B'}];
     appData.attendanceRecords=[normalizeAttendanceRecord({date:'2026-09-05',employeeId:'A',name:'A',otEarned:3})];
-    window.prompt=()=>null;`);
-  assert.equal(b.run("ensureOtSplit('2026-09-05','A')"), false);
-  assert.equal(b.run("getAttendanceRecord('2026-09-05','A').earlyOt"), null);
-  b.run('window.prompt=()=>"4"');
-  assert.equal(b.run("ensureOtSplit('2026-09-05','A')"), false);
-  b.run('window.prompt=()=>"1"');
-  assert.equal(b.run("ensureOtSplit('2026-09-05','A')"), true);
+    `);
+  assert.equal(b.run("reconcileAssignments('2026-09-05',{needsOt:true,mriEmployeeId:'A',xrayEmployeeId:'B'}, {mri:1,xray:0,nightMri:0,nightXray:0})"), true);
+  assert.equal(b.run("getAttendanceRecord('2026-09-05','A').earlyOt"), 1);
   assert.equal(b.run("getAttendanceRecord('2026-09-05','A').otherOt"), 2);
   assert.equal(b.run("getAttendanceRecord('2026-09-05','A').otEarned"), 3);
+});
+
+test('legacy split rejects assignment time greater than the existing total', () => {
+  const b = browser();
+  b.run(`appData.records=[{date:'2026-09-05',needsOt:true,mriEmployeeId:'A',xrayEmployeeId:'B'}];
+    appData.attendanceRecords=[normalizeAttendanceRecord({date:'2026-09-05',employeeId:'A',name:'A',otEarned:3})];`);
+  assert.equal(b.run("reconcileAssignments('2026-09-05',{needsOt:true,mriEmployeeId:'A',xrayEmployeeId:'B'}, {mri:4,xray:0,nightMri:0,nightXray:0})"), false);
+  assert.equal(b.run("getAttendanceRecord('2026-09-05','A').earlyOt"), null);
 });
 
 test('editing early hours and removing a whole assignment do not double count or remove other hours', async () => {
@@ -133,7 +137,7 @@ test('admin and employee calendars show early/other hours separately, including 
   assert.equal(run("buildCalendarDayContent('2026-09-05',data,'A',true).middleText"), 'OT 2');
   assert.equal(run("buildCalendarDayContent('2026-09-05',data,'B').middleText"), '');
   run('data.attendanceRecords[0].earlyOt=null; data.attendanceRecords[0].otherOt=null');
-  assert.equal(run("buildCalendarDayContent('2026-09-05',data,'A',true).otText"), '조: 미확인');
+  assert.equal(run("buildCalendarDayContent('2026-09-05',data,'A',true).otText"), '조');
   assert.equal(run("buildCalendarDayContent('2026-09-05',data,'A',true).middleText"), 'OT 합계(구분 전) 3');
   run('data.attendanceRecords[0].earlyOt=0; data.attendanceRecords[0].otherOt=3');
   assert.equal(run("buildCalendarDayContent('2026-09-05',data,'A',true).otText"), '조: 0');

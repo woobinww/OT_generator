@@ -1223,8 +1223,11 @@ function buildCalendarTooltipText(dateText, record, middleText, missingWorkTime,
   if (record?.needsOt && (!employeeId || ownAssignment.ot.length)) {
     const mriAttendance = getAttendanceRecord(record.date, getEmployeeName(record.mriEmployeeId));
     const xrayAttendance = getAttendanceRecord(record.date, getEmployeeName(record.xrayEmployeeId));
+    const ownEarlyAssignments = employeeId
+      ? ownAssignment.ot.map(assignmentId => formatOwnCalendarAssignment(dateText, assignmentId, "earlyOt")).filter(Boolean)
+      : [];
     lines.push(employeeId
-      ? `조: ${ownAssignment.ot.map(assignmentId => formatOwnCalendarAssignment(dateText, assignmentId, "earlyOt")).join("/")}`
+      ? `조${ownEarlyAssignments.length ? `: ${ownEarlyAssignments.join("/")}` : ""}`
       : `조: ${formatEarlyCalendarName(dateText, record.mriEmployeeId)}/${formatEarlyCalendarName(dateText, record.xrayEmployeeId)}`);
   }
 
@@ -1319,14 +1322,16 @@ function getOwnAssignmentIds(record, employeeId) {
 }
 
 function formatEarlyCalendarName(dateText, employeeId) {
-  return `${getGivenNameOnly(employeeId)}(${formatOwnCalendarAssignment(dateText, employeeId, "earlyOt")})`;
+  const name = getGivenNameOnly(employeeId);
+  const time = formatOwnCalendarAssignment(dateText, employeeId, "earlyOt");
+  return time ? `${name}(${time})` : name;
 }
 
 function formatOwnCalendarAssignment(dateText, employeeId, fieldName) {
   const attendance = getAttendanceRecord(dateText, employeeId);
   if (fieldName === "earlyOt") {
     if (!attendance) return "미입력";
-    return attendance.earlyOt == null ? "미확인" : formatNumberForNote(attendance.earlyOt);
+    return attendance.earlyOt == null ? "" : formatNumberForNote(attendance.earlyOt);
   }
   const value = Number(attendance?.[fieldName] || 0);
   return value > 0 ? formatNumberForNote(value) : "있음";
@@ -1413,9 +1418,12 @@ function renderCalendar() {
     if (appData.attendanceRecords.some(item => item.date === dateText && (!adminOnlyMyAttendance || item.employeeId === adminEmployeeId) && hasAttendanceConflict(item))) {
       classes.push("has-attendance-conflict");
     }
+    const ownEarlyAssignments = adminOnlyMyAttendance
+      ? ownAssignment.ot.map(employeeId => formatOwnCalendarAssignment(dateText, employeeId, "earlyOt")).filter(Boolean)
+      : [];
     const otText = record?.needsOt && (!adminOnlyMyAttendance || ownAssignment.ot.length)
       ? adminOnlyMyAttendance
-        ? `조: ${ownAssignment.ot.map(employeeId => formatOwnCalendarAssignment(dateText, employeeId, "earlyOt")).join("/")}`
+        ? `조${ownEarlyAssignments.length ? `: ${ownEarlyAssignments.join("/")}` : ""}`
         : `조: ${formatEarlyCalendarName(dateText, record.mriEmployeeId)}/${formatEarlyCalendarName(dateText, record.xrayEmployeeId)}`
       : "";
     const nightText = (record?.nightMriEmployeeId || record?.nightXrayEmployeeId) &&
@@ -1725,17 +1733,15 @@ function hasAttendanceConflict(record) {
     .some(fieldName => toNumberOrZero(record[fieldName]) !== 0);
 }
 
-function ensureOtSplit(date, employeeId) {
+function ensureOtSplit(date, employeeId, earlyValue = null) {
   const record = getAttendanceRecord(date, employeeId);
   if (!record || OtModel.getSplit(record)) return true;
   const assigned = appData.records.some(item => item.date === date && item.needsOt &&
     [item.mriEmployeeId, item.xrayEmployeeId].includes(employeeId));
-  let earlyOt = 0;
-  if (assigned && record.otEarned !== 0) {
-    const answer = window.prompt(`${date} ${getEmployeeName(employeeId)} 기존 발생 OT ${record.otEarned}시간 중 조출 시간은 몇 시간인가요? 나머지는 기타 OT로 보존합니다.`, "");
-    if (answer === null || !answer.trim()) return false;
-    earlyOt = Number(answer);
-  }
+  const earlyOt = assigned && record.otEarned !== 0
+    ? earlyValue
+    : 0;
+  if (assigned && record.otEarned !== 0 && earlyValue === null) return false;
   try {
     Object.assign(record, normalizeAttendanceRecord(OtModel.resolveLegacy(record, earlyOt)));
     return true;
@@ -1767,7 +1773,10 @@ function reconcileAssignments(date, next, times) {
   const oldNight = [previous?.nightMriEmployeeId, previous?.nightXrayEmployeeId].filter(Boolean);
   const newNight = [next.nightMriEmployeeId, next.nightXrayEmployeeId].filter(Boolean);
   for (const id of new Set([...oldEarly, ...newEarly])) {
-    if (!ensureOtSplit(date, id)) return false;
+    const earlyValue = next.needsOt
+      ? (next.mriEmployeeId === id ? times.mri : next.xrayEmployeeId === id ? times.xray : 0)
+      : 0;
+    if (!ensureOtSplit(date, id, earlyValue)) return false;
   }
   for (const id of oldEarly.filter(id => !newEarly.includes(id))) {
     upsertAttendanceTime(date, id, "ot", 0);
