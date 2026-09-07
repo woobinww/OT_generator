@@ -30,18 +30,17 @@
       <div>
         <h1>영상의학과 근무·근태 관리</h1>
       </div>
+      <nav class="admin-view-switcher" aria-label="관리자 화면 선택">
+        <button id="adminCalendarViewButton" class="active" type="button" aria-pressed="true">근무 캘린더</button>
+        <button id="adminManagementViewButton" type="button" aria-pressed="false">관리 화면</button>
+      </nav>
       <div class="topbar-actions">
-        <button id="algorithmHelpButton" aria-label="추천 계산 방식 보기" type="button">?</button>
-        <button id="exportCsvButton">CSV 내보내기</button>
-        <button id="exportAttendanceCsvButton">근태 CSV 내보내기</button>
-        <button id="backupJsonButton">JSON 백업</button>
-        <button id="restoreJsonButton">JSON 복원</button>
-        <button id="serverLogoutButton" type="button">로그아웃</button>
-        <input id="restoreJsonInput" class="hidden" type="file" accept="application/json,.json">
+        <button id="algorithmHelpButton" class="utility-icon-button" aria-label="추천 계산 방식 보기" title="도움말" type="button">?</button>
+        <button id="serverLogoutButton" class="utility-icon-button" aria-label="로그아웃" title="로그아웃" type="button">↪</button>
       </div>
     </header>
 
-    <main class="layout">
+    <main id="adminCalendarView" class="layout">
       <div class="layout-column layout-column-left">
         <section class="panel main-panel">
           <div class="section-title">
@@ -328,16 +327,16 @@
           </div>
         </details>
 
-        <details class="panel collapsible-panel server-admin-panel">
+        <details id="serverAdminPanel" class="panel collapsible-panel server-admin-panel">
           <summary class="section-title collapsible-summary">
             <div>
-              <p class="eyebrow">서버 전환</p>
+              <p class="eyebrow">관리 도구</p>
               <h2>서버 관리자 도구</h2>
             </div>
             <span class="collapsible-hint">열기 / 닫기</span>
           </summary>
           <details class="server-tool-section" data-server-tool-section>
-            <summary class="server-tool-summary">데이터 가져오기·동기화</summary>
+            <summary class="server-tool-summary">데이터 가져오기·동기화 및 백업·복구</summary>
             <div id="serverStatusBox" class="message server-status">서버 상태를 확인 중입니다.</div>
             <div class="button-row server-recovery-row">
               <button id="serverReloadButton" class="hidden" type="button">서버 최신본 다시 불러오기</button>
@@ -345,6 +344,7 @@
               <select id="serverBackupSelect" aria-label="복원할 서버 백업"></select>
               <button id="serverRestoreButton" type="button">선택 백업 복원</button>
             </div>
+            <p class="muted small-note">복원하기 전에 현재 서버 DB를 자동으로 한 번 더 백업합니다. 복원 후 서버가 재시작되면 페이지를 새로고침해 주세요.</p>
             <div class="server-import-box">
               <label>
                 JSON 백업 파일
@@ -352,6 +352,34 @@
               </label>
               <button id="serverImportButton" type="button">서버 DB로 가져오기</button>
               <p class="muted small-note">기존 `JSON 백업` 파일을 선택하면 직원, 조출/야간, 근태 기록을 SQLite DB로 옮깁니다. 관리자 로그인 후 사용할 수 있습니다.</p>
+            </div>
+          </details>
+          <details class="server-tool-section" data-server-tool-section>
+            <summary class="server-tool-summary">관리자 작업 로그</summary>
+            <div class="server-summary-box audit-log-box">
+              <div class="section-title compact-title">
+                <div>
+                  <p class="eyebrow">감사 기록</p>
+                  <h3>최근 관리자 작업</h3>
+                </div>
+                <button id="serverAuditLogsRefreshButton" type="button">새로고침</button>
+              </div>
+              <p class="muted small-note">로그인, 데이터 저장·가져오기, 계정·권한 변경, 백업·메모 작업을 최근순으로 표시합니다.</p>
+              <div id="serverAuditLogsStatus" class="muted small-note" aria-live="polite"></div>
+              <div class="table-wrap audit-log-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>시각</th>
+                      <th>작업자</th>
+                      <th>작업</th>
+                      <th>대상</th>
+                      <th>상세</th>
+                    </tr>
+                  </thead>
+                  <tbody id="serverAuditLogsBody"></tbody>
+                </table>
+              </div>
             </div>
           </details>
           <details class="server-tool-section" data-server-tool-section>
@@ -408,6 +436,7 @@
                   권한
                   <select id="serverNewUserRoleSelect">
                     <option value="user">일반 유저</option>
+                    <option value="calendar_admin">근무 관리자</option>
                     <option value="admin">관리자</option>
                   </select>
                 </label>
@@ -512,7 +541,7 @@
           </div>
         </section>
 
-        <details class="panel collapsible-panel">
+        <details id="employeeManagementPanel" class="panel collapsible-panel">
           <summary class="section-title collapsible-summary">
             <div>
               <p class="eyebrow">직원 관리</p>
@@ -581,6 +610,27 @@
             </table>
           </div>
         </details>
+      </div>
+    </main>
+
+    <main id="adminManagementView" class="admin-management-view hidden">
+      <div class="admin-management-grid">
+        <section class="panel file-management-panel">
+          <div class="section-title compact-title">
+            <div>
+              <p class="eyebrow">파일 관리</p>
+              <h2>CSV·JSON 관리</h2>
+            </div>
+          </div>
+          <div class="button-row file-management-actions">
+            <button id="exportCsvButton" type="button">CSV 내보내기</button>
+            <button id="exportAttendanceCsvButton" type="button">근태 CSV 내보내기</button>
+            <button id="backupJsonButton" type="button">JSON 백업</button>
+            <button id="restoreJsonButton" type="button">JSON 복원</button>
+            <input id="restoreJsonInput" class="hidden" type="file" accept="application/json,.json">
+          </div>
+          <p class="muted small-note">CSV는 현재 선택 월 자료를 내보내고, JSON은 브라우저 작업 데이터를 백업·복원합니다.</p>
+        </section>
       </div>
     </main>
 

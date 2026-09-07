@@ -1,7 +1,7 @@
 const { createReadStream, existsSync } = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { hashPassword, verifyPassword, getSyncVersion, writeAuditLog } = require("./database");
+const { hashPassword, verifyPassword, getSyncVersion, writeAuditLog, getAuditLogs } = require("./database");
 const { importLocalData } = require("./migration");
 const { createLogger } = require("./logger");
 const { createBackupManager } = require("./backup");
@@ -147,7 +147,7 @@ async function handleApiRequest({ request, response, url, database, logger, back
   }
 
   if (request.method === "GET" && url.pathname === "/api/admin/monthly-summary") {
-    const session = requireRole(request, response, "admin");
+    const session = requireCalendarAdmin(request, response);
     if (!session) return;
 
     const month = url.searchParams.get("month") || getCurrentMonth();
@@ -156,7 +156,7 @@ async function handleApiRequest({ request, response, url, database, logger, back
   }
 
   if (request.method === "GET" && url.pathname === "/api/admin/employees") {
-    const session = requireRole(request, response, "admin");
+    const session = requireCalendarAdmin(request, response);
     if (!session) return;
 
     sendJson(response, 200, { employees: getEmployees(database) });
@@ -164,7 +164,7 @@ async function handleApiRequest({ request, response, url, database, logger, back
   }
 
   if (request.method === "GET" && url.pathname === "/api/admin/data") {
-    const session = requireRole(request, response, "admin");
+    const session = requireCalendarAdmin(request, response);
     if (!session) return;
 
     sendJson(response, 200, { data: getFullData(database), version: getSyncVersion(database) });
@@ -180,10 +180,20 @@ async function handleApiRequest({ request, response, url, database, logger, back
   }
 
   if (request.method === "GET" && url.pathname === "/api/admin/sync-state") {
-    const session = requireRole(request, response, "admin");
+    const session = requireCalendarAdmin(request, response);
     if (!session) return;
 
     sendJson(response, 200, { version: getSyncVersion(database) });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/admin/audit-logs") {
+    const session = requireRole(request, response, "admin");
+    if (!session) return;
+
+    const limit = url.searchParams.get("limit") || "100";
+    const eventType = url.searchParams.get("eventType") || "";
+    sendJson(response, 200, { logs: getAuditLogs(database, { limit, eventType }) });
     return;
   }
 
@@ -207,14 +217,15 @@ async function handleApiRequest({ request, response, url, database, logger, back
     const session = requireRole(request, response, "admin");
     if (!session) return;
     const body = await readJsonBody(request);
-    const backup = backups.restoreBackup(String(body.fileName || ""));
-    recordAudit(database, "data.backup_restored", session, { details: { fileName: backup.fileName } });
+    const fileName = String(body.fileName || "");
+    recordAudit(database, "data.backup_restore_started", session, { details: { fileName } });
+    const backup = backups.restoreBackup(fileName);
     sendJson(response, 202, { ok: true, backup, restarting: true });
     return;
   }
 
   if (request.method === "GET" && url.pathname === "/api/admin/date-memos") {
-    const session = requireRole(request, response, "admin");
+    const session = requireCalendarAdmin(request, response);
     if (!session) return;
 
     sendJson(response, 200, { memos: getDateMemos(database) });
@@ -222,7 +233,7 @@ async function handleApiRequest({ request, response, url, database, logger, back
   }
 
   if (request.method === "POST" && url.pathname === "/api/admin/date-memos") {
-    const session = requireRole(request, response, "admin");
+    const session = requireCalendarAdmin(request, response);
     if (!session) return;
 
     const body = await readJsonBody(request);
@@ -280,7 +291,7 @@ async function handleApiRequest({ request, response, url, database, logger, back
   }
 
   if (request.method === "GET" && url.pathname === "/api/admin/calendar") {
-    const session = requireRole(request, response, "admin");
+    const session = requireCalendarAdmin(request, response);
     if (!session) return;
 
     const month = url.searchParams.get("month") || getCurrentMonth();
@@ -289,12 +300,13 @@ async function handleApiRequest({ request, response, url, database, logger, back
   }
 
   if (request.method === "POST" && url.pathname === "/api/admin/import-local-data") {
-    const session = requireRole(request, response, "admin");
+    const session = requireCalendarAdmin(request, response);
     if (!session) return;
 
     const body = await readJsonBody(request);
     const replace = url.searchParams.get("replace") === "true";
     const localData = body && typeof body === "object" && body.data ? body.data : body;
+    if (session.role === "calendar_admin") assertCalendarDataOnly(database, localData);
     let summary;
     try {
       summary = importLocalData(database, localData, {
@@ -476,7 +488,7 @@ function getUsers(database) {
 function createUser(database, body) {
   const username = String(body.username || "").trim();
   const password = String(body.password || "");
-  const role = body.role === "admin" ? "admin" : "user";
+  const role = normalizeRole(body.role) || "user";
   const employeeId = body.employeeId ? Number(body.employeeId) : null;
 
   if (!username) {
@@ -533,7 +545,8 @@ function updateUserPassword(database, userId, password) {
 }
 
 function updateUserRole(database, userId, role, currentAdminUserId) {
-  if (!["admin", "user"].includes(role)) {
+  const normalizedRole = normalizeRole(role);
+  if (!normalizedRole) {
     throw new Error("변경할 권한을 올바르게 선택해 주세요.");
   }
 
@@ -541,10 +554,10 @@ function updateUserRole(database, userId, role, currentAdminUserId) {
   if (!user) {
     throw new Error("사용자 계정을 찾을 수 없습니다.");
   }
-  if (user.id === currentAdminUserId && role !== "admin") {
+  if (user.id === currentAdminUserId && normalizedRole !== "admin") {
     throw new Error("현재 로그인한 관리자 본인의 권한은 변경할 수 없습니다.");
   }
-  if (role === "user" && !user.employee_id) {
+  if (normalizedRole === "user" && !user.employee_id) {
     throw new Error("일반 유저 권한을 사용하려면 먼저 직원과 연결된 계정이어야 합니다.");
   }
 
@@ -553,13 +566,19 @@ function updateUserRole(database, userId, role, currentAdminUserId) {
     SET role = ?,
         updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(role, userId);
+  `).run(normalizedRole, userId);
 
   for (const session of sessions.values()) {
     if (session.userId === userId) {
-      session.role = role;
+      session.role = normalizedRole;
     }
   }
+}
+
+function normalizeRole(role) {
+  const value = String(role || "").trim();
+  if (value === "근무 관리자") return "calendar_admin";
+  return ["admin", "calendar_admin", "user"].includes(value) ? value : "";
 }
 
 function updateOwnPassword(database, userId, currentPassword, newPassword) {
@@ -775,6 +794,49 @@ function requireRole(request, response, role) {
     return null;
   }
   return session;
+}
+
+function requireCalendarAdmin(request, response) {
+  return requireAnyRole(request, response, ["admin", "calendar_admin"]);
+}
+
+function requireAnyRole(request, response, roles) {
+  const session = requireSession(request, response);
+  if (!session) return null;
+  if (!roles.includes(session.role)) {
+    sendJson(response, 403, { error: "권한이 없습니다." });
+    return null;
+  }
+  return session;
+}
+
+function assertCalendarDataOnly(database, localData) {
+  const currentEmployees = getFullData(database).employees
+    .map(employee => ({
+      id: String(employee.id),
+      name: employee.name,
+      hireDate: employee.hireDate || "",
+      retireDate: employee.retireDate || "",
+      mriStartDate: employee.mriStartDate || "",
+      otStartDate: employee.otStartDate || "",
+      nightStartDate: employee.nightStartDate || ""
+    }));
+  const incomingEmployees = Array.isArray(localData?.employees)
+    ? localData.employees.map(employee => ({
+      id: String(employee.id),
+      name: employee.name,
+      hireDate: employee.hireDate || "",
+      retireDate: employee.retireDate || "",
+      mriStartDate: employee.mriStartDate || "",
+      otStartDate: employee.otStartDate || "",
+      nightStartDate: employee.nightStartDate || ""
+    }))
+    : [];
+  if (JSON.stringify(currentEmployees) !== JSON.stringify(incomingEmployees)) {
+    const error = new Error("근무 관리자 계정은 직원 정보를 변경할 수 없습니다.");
+    error.statusCode = 403;
+    throw error;
+  }
 }
 
 function requireSession(request, response) {

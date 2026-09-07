@@ -27,7 +27,7 @@ function createTables(database) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
-      role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+      role TEXT NOT NULL CHECK (role IN ('admin', 'calendar_admin', 'user')),
       employee_id INTEGER,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -120,7 +120,61 @@ function createTables(database) {
     CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_event_type ON audit_logs(event_type);
   `);
+  ensureUserRoleConstraint(database);
   ensureAttendanceRecordColumns(database);
+}
+
+function ensureUserRoleConstraint(database) {
+  const table = database.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").get();
+  if (!table?.sql || table.sql.includes("'calendar_admin'")) return;
+
+  database.exec("PRAGMA foreign_keys = OFF");
+  try {
+    database.exec("BEGIN");
+    database.exec("ALTER TABLE audit_logs RENAME TO audit_logs_legacy_roles");
+    database.exec("ALTER TABLE users RENAME TO users_legacy_roles");
+    database.exec(`
+      CREATE TABLE users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('admin', 'calendar_admin', 'user')),
+        employee_id INTEGER,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (employee_id) REFERENCES employees(id)
+      );
+      INSERT INTO users (id, username, password_hash, role, employee_id, created_at, updated_at)
+      SELECT id, username, password_hash, role, employee_id, created_at, updated_at
+      FROM users_legacy_roles;
+
+      CREATE TABLE audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        event_type TEXT NOT NULL,
+        actor_user_id INTEGER,
+        actor_username TEXT,
+        actor_role TEXT,
+        target_date TEXT,
+        target_employee_id INTEGER,
+        details_json TEXT NOT NULL DEFAULT '{}',
+        FOREIGN KEY (actor_user_id) REFERENCES users(id)
+      );
+      INSERT INTO audit_logs (id, created_at, event_type, actor_user_id, actor_username, actor_role, target_date, target_employee_id, details_json)
+      SELECT id, created_at, event_type, actor_user_id, actor_username, actor_role, target_date, target_employee_id, details_json
+      FROM audit_logs_legacy_roles;
+      DROP TABLE audit_logs_legacy_roles;
+      DROP TABLE users_legacy_roles;
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_event_type ON audit_logs(event_type);
+    `);
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  } finally {
+    database.exec("PRAGMA foreign_keys = ON");
+  }
 }
 
 function ensureAttendanceRecordColumns(database) {
@@ -209,11 +263,57 @@ function writeAuditLog(database, event = {}) {
   );
 }
 
+function getAuditLogs(database, { limit = 100, eventType = "" } = {}) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
+  const rows = eventType
+    ? database.prepare(`
+      SELECT a.id, a.created_at AS createdAt, a.event_type AS eventType,
+        a.actor_username AS actorUsername, a.actor_role AS actorRole,
+        a.target_date AS targetDate, a.target_employee_id AS targetEmployeeId,
+        e.name AS targetEmployeeName, a.details_json AS detailsJson
+      FROM audit_logs a
+      LEFT JOIN employees e ON e.id = a.target_employee_id
+      WHERE a.event_type = ?
+      ORDER BY a.id DESC
+      LIMIT ?
+    `).all(String(eventType), safeLimit)
+    : database.prepare(`
+      SELECT a.id, a.created_at AS createdAt, a.event_type AS eventType,
+        a.actor_username AS actorUsername, a.actor_role AS actorRole,
+        a.target_date AS targetDate, a.target_employee_id AS targetEmployeeId,
+        e.name AS targetEmployeeName, a.details_json AS detailsJson
+      FROM audit_logs a
+      LEFT JOIN employees e ON e.id = a.target_employee_id
+      ORDER BY a.id DESC
+      LIMIT ?
+    `).all(safeLimit);
+
+  return rows.map(row => {
+    let details = {};
+    try {
+      details = JSON.parse(row.detailsJson || "{}");
+    } catch {
+      details = {};
+    }
+    return {
+      id: row.id,
+      createdAt: row.createdAt,
+      eventType: row.eventType,
+      actorUsername: row.actorUsername || "시스템",
+      actorRole: row.actorRole || "",
+      targetDate: row.targetDate || "",
+      targetEmployeeId: row.targetEmployeeId,
+      targetEmployeeName: row.targetEmployeeName || "",
+      details
+    };
+  });
+}
+
 module.exports = {
   initializeDatabase,
   hashPassword,
   verifyPassword,
   getSyncVersion,
-  writeAuditLog
+  writeAuditLog,
+  getAuditLogs
 };
-

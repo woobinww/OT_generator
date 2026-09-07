@@ -75,6 +75,7 @@ let serverViewMode = false;
 let serverAutoSyncEnabled = false;
 let serverSyncVersion = null;
 let adminEmployeeId = "";
+let currentAdminRole = "";
 let adminOnlyMyAttendance = false;
 let activeInputSection = "";
 let saturdayOffPopupOpen = false;
@@ -91,6 +92,10 @@ const elements = {
   adminGatePasswordInput: document.querySelector("#adminGatePasswordInput"),
   adminGateLoginButton: document.querySelector("#adminGateLoginButton"),
   adminGateMessage: document.querySelector("#adminGateMessage"),
+  adminCalendarView: document.querySelector("#adminCalendarView"),
+  adminManagementView: document.querySelector("#adminManagementView"),
+  adminCalendarViewButton: document.querySelector("#adminCalendarViewButton"),
+  adminManagementViewButton: document.querySelector("#adminManagementViewButton"),
   selectedDateInput: document.querySelector("#selectedDateInput"),
   previousMonthButton: document.querySelector("#previousMonthButton"),
   nextMonthButton: document.querySelector("#nextMonthButton"),
@@ -177,6 +182,9 @@ const elements = {
   serverLogoutButton: document.querySelector("#serverLogoutButton"),
   serverImportFileInput: document.querySelector("#serverImportFileInput"),
   serverImportButton: document.querySelector("#serverImportButton"),
+  serverAuditLogsRefreshButton: document.querySelector("#serverAuditLogsRefreshButton"),
+  serverAuditLogsStatus: document.querySelector("#serverAuditLogsStatus"),
+  serverAuditLogsBody: document.querySelector("#serverAuditLogsBody"),
   serverSummaryBody: document.querySelector("#serverSummaryBody"),
   serverUsersRefreshButton: document.querySelector("#serverUsersRefreshButton"),
   serverUserEmployeeSelect: document.querySelector("#serverUserEmployeeSelect"),
@@ -195,6 +203,27 @@ const elements = {
   serverChangePasswordButton: document.querySelector("#serverChangePasswordButton"),
   serverUsersBody: document.querySelector("#serverUsersBody")
 };
+
+function moveManagementPanels() {
+  const managementGrid = elements.adminManagementView?.querySelector(".admin-management-grid");
+  if (!managementGrid || typeof managementGrid.appendChild !== "function") return;
+  [document.querySelector("#employeeManagementPanel"), document.querySelector("#serverAdminPanel")]
+    .filter(Boolean)
+    .forEach(panel => managementGrid.appendChild(panel));
+}
+
+function setAdminView(viewName = "calendar") {
+  const managementView = viewName === "management" && currentAdminRole === "admin";
+  elements.adminCalendarView.classList.toggle("hidden", managementView);
+  elements.adminManagementView.classList.toggle("hidden", !managementView);
+  elements.adminManagementViewButton.classList.toggle("hidden", currentAdminRole !== "admin");
+  elements.adminCalendarViewButton.classList.toggle("active", !managementView);
+  elements.adminManagementViewButton.classList.toggle("active", managementView);
+  elements.adminCalendarViewButton.setAttribute("aria-pressed", String(!managementView));
+  elements.adminManagementViewButton.setAttribute("aria-pressed", String(managementView));
+}
+
+moveManagementPanels();
 
 function formatLocalDate(date) {
   const year = date.getFullYear();
@@ -2288,9 +2317,11 @@ function setAdminGateMessage(message, type = "info") {
 function showAdminApp() {
   elements.adminLoginScreen.classList.add("hidden");
   elements.adminAppShell.classList.remove("hidden");
+  setAdminView("calendar");
 }
 
 function updateAdminAttendanceButton(user) {
+  currentAdminRole = user?.role || "";
   adminEmployeeId = user?.employeeId ? String(user.employeeId) : "";
   adminOnlyMyAttendance = false;
   elements.adminMyAttendanceToggleButton.classList.toggle("hidden", !adminEmployeeId);
@@ -2298,6 +2329,7 @@ function updateAdminAttendanceButton(user) {
 }
 
 function showAdminLogin() {
+  currentAdminRole = "";
   elements.adminLoginScreen.classList.remove("hidden");
   elements.adminAppShell.classList.add("hidden");
 }
@@ -2406,11 +2438,71 @@ async function restoreServerBackup() {
   }
 }
 
+const auditEventLabels = {
+  "auth.login_failed": "로그인 실패",
+  "auth.login_success": "로그인",
+  "auth.logout": "로그아웃",
+  "user.password_changed": "비밀번호 변경",
+  "user.created": "계정 생성",
+  "user.role_changed": "권한 변경",
+  "data.backup_created": "백업 생성",
+  "data.backup_restore_started": "백업 복원 시작",
+  "data.backup_restored": "백업 복원",
+  "data.imported": "데이터 저장",
+  "data.sync_conflict": "동기화 충돌",
+  "date_memo.saved": "날짜 메모 저장"
+};
+
+function formatAuditDetails(details) {
+  if (!details || typeof details !== "object") return "-";
+  const labels = {
+    username: "ID",
+    role: "권한",
+    targetUserId: "계정 ID",
+    fileName: "파일",
+    hasMemo: "메모 있음",
+    replace: "전체 교체",
+    employees: "직원",
+    workRecords: "근무 기록",
+    attendanceRecords: "근태 기록",
+    version: "버전",
+    self: "본인 변경"
+  };
+  const entries = Object.entries(details)
+    .filter(([key]) => labels[key])
+    .map(([key, value]) => `${labels[key]} ${value === true ? "예" : value === false ? "아니오" : value}`);
+  return entries.length ? entries.join(" · ") : "-";
+}
+
+async function loadServerAuditLogs() {
+  if (!elements.serverAuditLogsBody) return;
+  elements.serverAuditLogsStatus.textContent = "로그를 불러오는 중입니다.";
+  try {
+    const payload = await serverRequest("/api/admin/audit-logs?limit=100");
+    const logs = Array.isArray(payload.logs) ? payload.logs : [];
+    elements.serverAuditLogsBody.innerHTML = logs.length
+      ? logs.map(log => `
+        <tr>
+          <td>${escapeHtml(log.createdAt || "-")}</td>
+          <td>${escapeHtml(log.actorUsername || "시스템")}</td>
+          <td>${escapeHtml(auditEventLabels[log.eventType] || log.eventType || "기타")}</td>
+          <td>${escapeHtml(log.targetEmployeeName || log.targetDate || "-")}</td>
+          <td>${escapeHtml(formatAuditDetails(log.details))}</td>
+        </tr>
+      `).join("")
+      : `<tr><td colspan="5" class="muted">기록된 작업 로그가 없습니다.</td></tr>`;
+    elements.serverAuditLogsStatus.textContent = `최근 ${logs.length}건을 표시합니다.`;
+  } catch (error) {
+    elements.serverAuditLogsBody.innerHTML = `<tr><td colspan="5" class="muted">로그를 불러오지 못했습니다.</td></tr>`;
+    elements.serverAuditLogsStatus.textContent = error.message || "작업 로그를 불러오지 못했습니다.";
+  }
+}
+
 async function checkServerSession() {
   if (!elements.serverStatusBox) return;
   try {
     const payload = await serverRequest("/api/auth/me");
-    if (payload.user.role !== "admin") {
+    if (!["admin", "calendar_admin"].includes(payload.user.role)) {
       serverAutoSyncEnabled = false;
       serverSyncVersion = null;
       window.location.href = "./user.html";
@@ -2424,10 +2516,13 @@ async function checkServerSession() {
     try {
       await loadServerSyncState();
       await loadServerCalendarMonth();
-      await loadServerUsersAndEmployees();
       await loadServerMonthlySummary();
-    await loadServerDateMemos();
-      await loadServerBackups();
+      await loadServerDateMemos();
+      if (payload.user.role === "admin") {
+        await loadServerUsersAndEmployees();
+        await loadServerBackups();
+        await loadServerAuditLogs();
+      }
     } catch (loadError) {
       elements.adminAppShell.inert = false;
       setServerRecoveryButtonVisible(true);
@@ -2456,7 +2551,7 @@ async function loginServerAdmin(usernameOverride = "", passwordOverride = "") {
       body: JSON.stringify({ username, password })
     });
     elements.adminGatePasswordInput.value = "";
-    if (payload.user.role !== "admin") {
+    if (!["admin", "calendar_admin"].includes(payload.user.role)) {
       serverAutoSyncEnabled = false;
       serverSyncVersion = null;
       window.location.href = "./user.html";
@@ -2470,10 +2565,13 @@ async function loginServerAdmin(usernameOverride = "", passwordOverride = "") {
     try {
       await loadServerSyncState();
       await loadServerCalendarMonth();
-      await loadServerUsersAndEmployees();
       await loadServerMonthlySummary();
-    await loadServerDateMemos();
-      await loadServerBackups();
+      await loadServerDateMemos();
+      if (payload.user.role === "admin") {
+        await loadServerUsersAndEmployees();
+        await loadServerBackups();
+        await loadServerAuditLogs();
+      }
     } catch (loadError) {
       elements.adminAppShell.inert = false;
       setServerRecoveryButtonVisible(true);
@@ -2529,6 +2627,12 @@ async function importLocalBackupToServer() {
 function formatServerNumber(value) {
   const numberValue = Number(value || 0);
   return Number.isInteger(numberValue) ? String(numberValue) : String(numberValue);
+}
+
+function getRoleLabel(role) {
+  if (role === "admin") return "관리자";
+  if (role === "calendar_admin") return "근무 관리자";
+  return "일반 유저";
 }
 
 async function loadServerMonthlySummary() {
@@ -2588,18 +2692,19 @@ async function loadServerUsersAndEmployees() {
       <option value="${employee.id}">${escapeHtml(employee.name)}</option>
     `).join("")}`;
     elements.serverPasswordUserSelect.innerHTML = `<option value="">계정 선택</option>${userPayload.users.map(user => `
-      <option value="${user.id}">${escapeHtml(user.username)} (${user.role === "admin" ? "관리자" : "일반"})</option>
+      <option value="${user.id}">${escapeHtml(user.username)} (${getRoleLabel(user.role)})</option>
     `).join("")}`;
 
     elements.serverUsersBody.innerHTML = userPayload.users.map(user => `
       <tr>
         <td>${escapeHtml(user.username)}</td>
-        <td>${user.role === "admin" ? "관리자" : "일반"}</td>
+        <td>${getRoleLabel(user.role)}</td>
         <td>${escapeHtml(user.employeeName || "-")}</td>
         <td>
           <div class="button-row server-role-actions">
             <select data-role-user-id="${user.id}" aria-label="${escapeHtml(user.username)} 권한">
               <option value="user" ${user.role === "user" ? "selected" : ""}>일반 유저</option>
+              <option value="calendar_admin" ${user.role === "calendar_admin" ? "selected" : ""}>근무 관리자</option>
               <option value="admin" ${user.role === "admin" ? "selected" : ""}>관리자</option>
             </select>
             <button type="button" data-change-role-user-id="${user.id}">권한 저장</button>
@@ -2651,7 +2756,7 @@ async function createServerUser() {
     elements.serverNewUsernameInput.value = "";
     elements.serverNewPasswordInput.value = "";
     closeServerAccountForms();
-    setServerStatus(`${username} ${role === "admin" ? "관리자" : "일반 유저"} 계정을 생성했습니다.`);
+    setServerStatus(`${username} ${getRoleLabel(role)} 계정을 생성했습니다.`);
     await loadServerUsersAndEmployees();
   } catch (error) {
     setServerStatus(error.message || "계정을 생성하지 못했습니다.", "error");
@@ -2686,7 +2791,7 @@ async function changeServerUserRole(userId) {
       setServerStatus("변경할 권한을 선택해 주세요.", "error");
       return;
     }
-    if (!window.confirm(`선택한 계정 권한을 ${role === "admin" ? "관리자" : "일반 유저"}로 변경할까요?`)) {
+    if (!window.confirm(`선택한 계정 권한을 ${getRoleLabel(role)}로 변경할까요?`)) {
       await loadServerUsersAndEmployees();
       return;
     }
@@ -2695,7 +2800,7 @@ async function changeServerUserRole(userId) {
       method: "POST",
       body: JSON.stringify({ role })
     });
-    setServerStatus(`${role === "admin" ? "관리자" : "일반 유저"} 권한으로 변경했습니다.`);
+    setServerStatus(`${getRoleLabel(role)} 권한으로 변경했습니다.`);
     await loadServerUsersAndEmployees();
   } catch (error) {
     setServerStatus(error.message || "권한을 변경하지 못했습니다.", "error");
@@ -2916,6 +3021,8 @@ elements.restoreJsonInput.addEventListener("change", event => {
 elements.adminGateLoginButton.addEventListener("click", () => {
   loginServerAdmin(elements.adminGateUsernameInput.value.trim(), elements.adminGatePasswordInput.value);
 });
+elements.adminCalendarViewButton.addEventListener("click", () => setAdminView("calendar"));
+elements.adminManagementViewButton.addEventListener("click", () => setAdminView("management"));
 elements.adminGatePasswordInput.addEventListener("keydown", event => {
   if (event.key !== "Enter") return;
   event.preventDefault();
@@ -2926,6 +3033,7 @@ elements.serverImportButton.addEventListener("click", importLocalBackupToServer)
 elements.serverReloadButton.addEventListener("click", reloadServerLatestData);
 elements.serverBackupButton.addEventListener("click", createServerBackup);
 elements.serverRestoreButton.addEventListener("click", restoreServerBackup);
+elements.serverAuditLogsRefreshButton.addEventListener("click", loadServerAuditLogs);
 elements.serverUsersRefreshButton.addEventListener("click", loadServerUsersAndEmployees);
 elements.serverCreateUserToggleButton.addEventListener("click", () => openServerAccountForm(elements.serverCreateUserForm));
 elements.serverChangePasswordToggleButton.addEventListener("click", () => openServerAccountForm(elements.serverChangePasswordForm));

@@ -66,12 +66,21 @@ button.is-active-mode {
   color: #fff;
 }
 
-#algorithmHelpButton {
+#algorithmHelpButton,
+#serverLogoutButton {
   border-radius: 999px;
   font-size: 0.95rem;
   height: 2.25rem;
   padding: 0;
   width: 2.25rem;
+}
+
+.file-management-actions {
+  align-items: center;
+}
+
+.file-management-panel .small-note {
+  margin-bottom: 0;
 }
 
 label {
@@ -173,6 +182,27 @@ th {
   gap: 0.55rem;
 }
 
+.admin-view-switcher {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.admin-view-switcher button {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 0.82rem;
+  padding: 0.42rem 0.7rem;
+}
+
+.admin-view-switcher button.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
 .layout {
   display: grid;
   gap: 1.2rem;
@@ -186,6 +216,15 @@ th {
   flex-direction: column;
   gap: 1.2rem;
   min-width: 0;
+}
+
+.admin-management-view {
+  padding: 0 clamp(1rem, 4vw, 2.5rem) 2rem;
+}
+
+.admin-management-grid {
+  display: grid;
+  gap: 1.2rem;
 }
 
 .panel {
@@ -1024,6 +1063,30 @@ button.annual-leave-calendar-day:hover,
   padding: 0.35rem 0.45rem;
 }
 
+.audit-log-box .compact-title {
+  margin-bottom: 0.35rem;
+}
+
+.audit-log-table-wrap {
+  max-height: 24rem;
+  overflow: auto;
+}
+
+.audit-log-table-wrap table {
+  min-width: 42rem;
+}
+
+.audit-log-table-wrap th,
+.audit-log-table-wrap td {
+  font-size: 0.74rem;
+  padding: 0.42rem 0.5rem;
+  white-space: nowrap;
+}
+
+.audit-log-table-wrap td:last-child {
+  white-space: normal;
+}
+
 .server-role-actions {
   flex-wrap: nowrap;
   gap: 0.35rem;
@@ -1176,6 +1239,11 @@ button.annual-leave-calendar-day:hover,
 
 .hidden {
   display: none;
+}
+
+#adminCalendarView.hidden,
+#adminManagementView.hidden {
+  display: none !important;
 }
 
 .table-wrap {

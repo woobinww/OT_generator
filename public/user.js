@@ -71,7 +71,7 @@ async function login() {
     });
     currentUser = payload.user;
     elements.passwordInput.value = "";
-    if (currentUser.role === "admin") {
+    if (["admin", "calendar_admin"].includes(currentUser.role)) {
       window.location.href = "./index.html";
       return;
     }
@@ -91,7 +91,7 @@ async function checkSession() {
   try {
     const payload = await api("/api/auth/me");
     currentUser = payload.user;
-    if (currentUser.role === "admin") {
+    if (["admin", "calendar_admin"].includes(currentUser.role)) {
       window.location.href = "./index.html";
       return;
     }

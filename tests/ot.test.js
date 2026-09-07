@@ -165,9 +165,15 @@ test('failed save preserves form and does not show success feedback; retry succe
 test('HTTP API/CSV, monthly summary, DB and backup roundtrip retain the same totals', async t => {
   const db = initializeDatabase(':memory:');
   const logger = { access() {}, error() {}, info() {} };
-  const server = createServer(createApp({ database: db, logger }));
+  const backupDirectory = require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'ot-http-backup-'));
+  const backupManager = createBackupManager(db, { directory: backupDirectory, retention: 2 });
+  const server = createServer(createApp({ database: db, logger, backupManager }));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(async () => { await new Promise(resolve => server.close(resolve)); db.close(); });
+  t.after(async () => {
+    await new Promise(resolve => server.close(resolve));
+    db.close();
+    require('node:fs').rmSync(backupDirectory, { recursive: true, force: true });
+  });
   const url = `http://127.0.0.1:${server.address().port}`;
   const login = await fetch(`${url}/api/auth/login`, { method: 'POST', body: JSON.stringify({ username: process.env.ADMIN_USERNAME || 'admin', password: process.env.ADMIN_PASSWORD || 'admin1234' }) });
   assert.equal(login.status, 200);
@@ -178,6 +184,13 @@ test('HTTP API/CSV, monthly summary, DB and backup roundtrip retain the same tot
   ] };
   const save = await fetch(`${url}/api/admin/import-local-data?replace=true`, {method:'POST',headers:{cookie},body:JSON.stringify({data,baseVersion:0})});
   assert.equal(save.status, 200);
+  const auditLogs = await (await fetch(`${url}/api/admin/audit-logs?limit=10`, {headers:{cookie}})).json();
+  assert.equal(auditLogs.logs[0].eventType, 'data.imported');
+  assert.equal(auditLogs.logs[0].actorRole, 'admin');
+  const backup = await (await fetch(`${url}/api/admin/backups`, { method: 'POST', headers: { cookie }, body: '{}' })).json();
+  assert.match(backup.backup.fileName, /^work-attendance-.*-manual\.sqlite$/);
+  const backups = await (await fetch(`${url}/api/admin/backups`, { headers: { cookie } })).json();
+  assert.ok(backups.backups.some(item => item.fileName === backup.backup.fileName));
   const full = await (await fetch(`${url}/api/admin/data`,{headers:{cookie}})).json();
   assert.equal(full.data.attendanceRecords[0].ot, -1);
   assert.equal(full.data.attendanceRecords[0].otEarned, 3);
@@ -185,6 +198,18 @@ test('HTTP API/CSV, monthly summary, DB and backup roundtrip retain the same tot
   assert.equal(full.data.attendanceRecords[1].earlyOt, null);
   const created = await fetch(`${url}/api/admin/users`, {method:'POST',headers:{cookie},body:JSON.stringify({username:'calendar-viewer',password:'test-password',employeeId:full.data.employees[0].id})});
   assert.equal(created.status, 201);
+  const calendarAdminCreated = await fetch(`${url}/api/admin/users`, {method:'POST',headers:{cookie},body:JSON.stringify({username:'calendar-admin',password:'test-password',role:'calendar_admin'})});
+  assert.equal(calendarAdminCreated.status, 201);
+  const calendarAdminLogin = await fetch(`${url}/api/auth/login`, {method:'POST',body:JSON.stringify({username:'calendar-admin',password:'test-password'})});
+  assert.equal(calendarAdminLogin.status, 200);
+  const calendarAdminCookie = calendarAdminLogin.headers.get('set-cookie').split(';')[0];
+  assert.equal((await fetch(`${url}/api/admin/data`, {headers:{cookie:calendarAdminCookie}})).status, 200);
+  assert.equal((await fetch(`${url}/api/admin/monthly-summary?month=2026-09`, {headers:{cookie:calendarAdminCookie}})).status, 200);
+  assert.equal((await fetch(`${url}/api/admin/users`, {headers:{cookie:calendarAdminCookie}})).status, 403);
+  assert.equal((await fetch(`${url}/api/admin/backups`, {headers:{cookie:calendarAdminCookie}})).status, 403);
+  const calendarAdminUser = (await (await fetch(`${url}/api/admin/users`, {headers:{cookie}})).json()).users.find(user => user.username === 'calendar-admin');
+  const roleChange = await fetch(`${url}/api/admin/users/${calendarAdminUser.id}/role`, {method:'POST',headers:{cookie},body:JSON.stringify({role:'근무 관리자'})});
+  assert.equal(roleChange.status, 200);
   const viewerLogin = await fetch(`${url}/api/auth/login`, {method:'POST',body:JSON.stringify({username:'calendar-viewer',password:'test-password'})});
   const viewerCookie = viewerLogin.headers.get('set-cookie').split(';')[0];
   const calendar = await (await fetch(`${url}/api/calendar?month=2026-09`,{headers:{cookie:viewerCookie}})).json();
