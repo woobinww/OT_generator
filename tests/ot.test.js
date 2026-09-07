@@ -141,6 +141,9 @@ test('admin and employee calendars show early/other hours separately, including 
   assert.equal(run("buildCalendarDayContent('2026-09-05',data,'A',true).middleText"), 'OT 합계(구분 전) 3');
   run('data.attendanceRecords[0].earlyOt=0; data.attendanceRecords[0].otherOt=3');
   assert.equal(run("buildCalendarDayContent('2026-09-05',data,'A',true).otText"), '조: 0');
+  run('data.attendanceRecords=[]');
+  assert.equal(run("buildCalendarDayContent('2026-09-05',data,'A').otText"), '조: 우빈/민수');
+  assert.equal(run("buildCalendarDayContent('2026-09-05',data,'A',true).otText"), '조');
 });
 
 test('failed save preserves form and does not show success feedback; retry succeeds', async () => {

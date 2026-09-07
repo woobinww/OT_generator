@@ -347,7 +347,7 @@ function formatOwnAssignment(attendanceRecords, employeeId, viewerEmployeeId, ti
   if (String(employeeId || "") !== String(viewerEmployeeId || "")) return "";
   const attendanceRecord = attendanceRecords.find(item => String(item.employeeId || "") === String(employeeId || ""));
   if (timeField === "earlyOt") {
-    const time = !attendanceRecord ? "미입력" : attendanceRecord.earlyOt == null ? "" : formatValue(attendanceRecord.earlyOt);
+    const time = !attendanceRecord ? "" : attendanceRecord.earlyOt == null ? "" : formatValue(attendanceRecord.earlyOt);
     return time;
   }
   const timeValue = Number(attendanceRecord?.[timeField] || 0);
@@ -367,7 +367,7 @@ function formatAssignmentName(data, attendanceRecords, employeeId, viewerEmploye
 
   const attendanceRecord = attendanceRecords.find(item => String(item.employeeId || "") === String(employee.id));
   if (timeField === "earlyOt") {
-    const time = !attendanceRecord ? "미입력" : attendanceRecord.earlyOt == null ? "" : formatValue(attendanceRecord.earlyOt);
+    const time = !attendanceRecord ? "" : attendanceRecord.earlyOt == null ? "" : formatValue(attendanceRecord.earlyOt);
     return time ? `${name}(${time})` : name;
   }
   const timeValue = Number(attendanceRecord?.[timeField] || 0);

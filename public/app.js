@@ -1330,7 +1330,7 @@ function formatEarlyCalendarName(dateText, employeeId) {
 function formatOwnCalendarAssignment(dateText, employeeId, fieldName) {
   const attendance = getAttendanceRecord(dateText, employeeId);
   if (fieldName === "earlyOt") {
-    if (!attendance) return "미입력";
+    if (!attendance) return "";
     return attendance.earlyOt == null ? "" : formatNumberForNote(attendance.earlyOt);
   }
   const value = Number(attendance?.[fieldName] || 0);
