@@ -89,6 +89,37 @@
 
           <div id="messageBox" class="message hidden"></div>
 
+          <details class="panel collapsible-panel server-summary-calendar-panel">
+            <summary class="section-title collapsible-summary">
+              <div>
+                <p class="eyebrow">서버 월간 요약</p>
+                <h2>선택 월 근태 현황</h2>
+              </div>
+              <span class="collapsible-hint">열기 / 닫기</span>
+            </summary>
+            <div class="server-summary-box">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>직원</th>
+                      <th>OT 총 합계</th>
+                      <th>OT 한 시간</th>
+                      <th>OT 사용</th>
+                      <th>nightOt</th>
+                      <th>holidayOt</th>
+                      <th>flexOt</th>
+                      <th>연차</th>
+                      <th>전반</th>
+                      <th>후반</th>
+                    </tr>
+                  </thead>
+                  <tbody id="serverSummaryBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </details>
+
           <section id="otInputSection" class="input-section hidden">
             <div class="section-title compact-title">
               <div>
@@ -190,6 +221,9 @@
               <span>직원</span>
               <select id="attendanceNameSelect"></select>
             </div>
+            <p id="attendanceEmployeeRequiredMessage" class="message error hidden" role="status">
+              직원을 먼저 선택해 주세요.
+            </p>
 
             <div class="attendance-groups-row">
               <fieldset class="attendance-group">
@@ -380,36 +414,6 @@
                   <tbody id="serverAuditLogsBody"></tbody>
                 </table>
               </div>
-            </div>
-          </details>
-          <details class="server-tool-section" data-server-tool-section>
-            <summary class="server-tool-summary">서버 월간 요약</summary>
-            <div class="server-summary-box">
-            <div class="section-title compact-title">
-              <div>
-                <p class="eyebrow">서버 월간 요약</p>
-                <h3>선택 월 근태 현황</h3>
-              </div>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>직원</th>
-                    <th>OT 총 합계</th>
-                    <th>OT 한 시간</th>
-                    <th>OT 사용</th>
-                    <th>nightOt</th>
-                    <th>holidayOt</th>
-                    <th>flexOt</th>
-                    <th>연차</th>
-                    <th>전반</th>
-                    <th>후반</th>
-                  </tr>
-                </thead>
-                <tbody id="serverSummaryBody"></tbody>
-              </table>
-            </div>
             </div>
           </details>
           <details class="server-tool-section" data-server-tool-section>

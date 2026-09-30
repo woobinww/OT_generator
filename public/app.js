@@ -474,6 +474,11 @@ function stripAutoOtNotePrefix(noteText) {
 }
 
 function syncAttendanceNoteWithOtInputs() {
+  if (!elements.attendanceNameSelect.value) {
+    elements.attendanceAutoNoteInput.value = "";
+    updateAttendanceOtDisplay();
+    return;
+  }
   updateAttendanceOtDisplay();
   const autoNote = buildAttendanceAutoNote(
     getEarlyOt(elements.selectedDateInput.value, elements.attendanceNameSelect.value) + toNumberOrZero(elements.attendanceOtInput.value),
@@ -1116,6 +1121,7 @@ function renderEmployeeOptions() {
     `).join("")
     : `<p class="muted small-note">해당 날짜 기준 재직 직원이 없습니다.</p>`;
   updateSaturdayOffButtonState();
+  updateAttendanceInputAvailability();
 }
 
 function updateSaturdayOffButtonState() {
@@ -1123,6 +1129,20 @@ function updateSaturdayOffButtonState() {
   const available = getWeekday(elements.selectedDateInput.value) === 6 && !hasSelectedEmployee;
   elements.saturdayOffBox.classList.toggle("hidden", !available || !saturdayOffPopupOpen);
   elements.saturdayOffBox.classList.toggle("is-popup", available && saturdayOffPopupOpen);
+}
+
+function updateAttendanceInputAvailability() {
+  const hasSelectedEmployee = Boolean(elements.attendanceNameSelect.value);
+  const message = document.querySelector("#attendanceEmployeeRequiredMessage");
+  const controls = elements.attendanceInputSection.querySelectorAll("input, select, textarea, button");
+
+  controls.forEach(control => {
+    const isEmployeeSelector = control === elements.attendanceNameSelect;
+    const isCloseButton = control.matches("[data-close-input]");
+    control.disabled = !hasSelectedEmployee && !isEmployeeSelector && !isCloseButton;
+  });
+
+  message?.classList.toggle("hidden", hasSelectedEmployee);
 }
 
 function refreshOtRoleOptions() {
@@ -1603,6 +1623,7 @@ function resetAttendanceForm(keepName = false) {
   updateAnnualLeaveView();
   updateSaturdayOffButtonState();
   updateAttendanceOtDisplay();
+  updateAttendanceInputAvailability();
 }
 
 function updateAnnualLeaveView() {
@@ -2999,6 +3020,7 @@ elements.attendanceNameSelect.addEventListener("change", () => {
   elements.annualLeaveMemoInput.value = "";
   elements.attendanceOffSelect.value = "";
   loadAttendanceRecordIntoForm(elements.selectedDateInput.value, elements.attendanceNameSelect.value);
+  updateAttendanceInputAvailability();
   updateSaturdayOffButtonState();
 });
   elements.attendanceOffSelect.addEventListener("change", handleAttendanceOffChange);
