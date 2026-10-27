@@ -22,7 +22,26 @@ jobs:
         shell: powershell -ExecutionPolicy Bypass -File {0}
         run: |
           Set-Location $env:GITHUB_WORKSPACE
-          New-Item -ItemType Directory -Force -Path (Join-Path $env:GITHUB_WORKSPACE 'logs') | Out-Null
+          $deployPath = 'D:\USER\Documents\OT_generator'
+          if (-not (Test-Path -LiteralPath $deployPath)) {
+            throw "운영 폴더를 찾지 못했습니다: $deployPath"
+          }
+
+          # 운영 데이터와 PM2 로그는 보존하고, GitHub Actions checkout의 코드만 반영합니다.
+          robocopy $env:GITHUB_WORKSPACE $deployPath /E /XD `
+            (Join-Path $env:GITHUB_WORKSPACE '.git') `
+            (Join-Path $env:GITHUB_WORKSPACE 'data') `
+            (Join-Path $env:GITHUB_WORKSPACE 'logs') `
+            (Join-Path $env:GITHUB_WORKSPACE 'node_modules') `
+            (Join-Path $deployPath '.git') `
+            (Join-Path $deployPath 'data') `
+            (Join-Path $deployPath 'logs') `
+            (Join-Path $deployPath 'node_modules')
+          if ($LASTEXITCODE -gt 7) {
+            throw "운영 폴더 코드 동기화에 실패했습니다. robocopy exit code: $LASTEXITCODE"
+          }
+          $global:LASTEXITCODE = 0
+          New-Item -ItemType Directory -Force -Path (Join-Path $deployPath 'logs') | Out-Null
 
           $nodePaths = @(
             "$env:ProgramFiles\nodejs",
@@ -38,13 +57,13 @@ jobs:
             throw 'Node.js/npm 또는 PM2를 찾지 못했습니다. self-hosted runner 서비스 계정에 설치되어 있는지 확인하세요.'
           }
 
+          Set-Location $deployPath
           npm.cmd run check
           if ($LASTEXITCODE -ne 0) {
             throw 'JavaScript syntax check failed.'
           }
 
-          # Refresh the app definition from this checkout. This preserves PM2's
-          # existing log handles while updating script/cwd to the pushed commit.
+          # 운영 폴더의 앱 정의로 PM2를 재시작해 실제 서비스 경로를 갱신합니다.
           pm2.cmd startOrRestart ecosystem.config.cjs --update-env
           if ($LASTEXITCODE -ne 0) {
             throw 'PM2 process start failed.'
@@ -69,7 +88,9 @@ jobs:
           if (-not $ready) {
             throw 'Local health check failed after waiting for PM2 process.'
           }
-          $health = (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/api/health).Content | ConvertFrom-Json
+          $healthResponse = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/api/health
+          Write-Host "Health response: $($healthResponse.Content)"
+          $health = $healthResponse.Content | ConvertFrom-Json
           if (-not $health.features.otSplit -or -not $health.features.backups) {
             throw '새 기능(OT 분리 또는 백업)이 실행 중인 서버에 반영되지 않았습니다.'
           }
