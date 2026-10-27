@@ -2897,6 +2897,8 @@ elements.calendarGrid.addEventListener("click", event => {
 elements.annualLeaveCalendar.addEventListener("click", event => {
   const button = event.target.closest("button[data-annual-date]");
   if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
   const date = button.dataset.annualDate;
   if (selectedAnnualLeaveDates.has(date)) {
     selectedAnnualLeaveDates.delete(date);
@@ -2944,7 +2946,7 @@ document.addEventListener("click", event => {
   if (
     event.target.closest("#dateInputMenu") ||
     event.target.closest("button[data-date]") ||
-    event.target.closest("#otInputSection, #nightInputSection, #attendanceInputSection, #dateMemoPopup, .saturday-off-box")
+    event.target.closest("#otInputSection, #nightInputSection, #attendanceInputSection, #annualLeaveCalendar, #dateMemoPopup, .saturday-off-box")
   ) return;
   closeDateInputMenu();
   setInputSectionVisibility("");
